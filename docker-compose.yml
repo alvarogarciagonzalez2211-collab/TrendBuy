@@ -1,24 +1,24 @@
+version: '3.8'
+
 services:
-  postgres:
+  db:
     image: postgres:16-alpine
-    container_name: trendbuy-postgres
     environment:
       POSTGRES_DB: trendbuy
       POSTGRES_USER: trendbuy
       POSTGRES_PASSWORD: trendbuy
-    ports:
-      - "5432:5432"
     volumes:
       - trendbuy_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U trendbuy -d trendbuy"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
-    container_name: trendbuy-redis
     ports:
       - "6379:6379"
     volumes:
@@ -29,6 +29,58 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build:
+      context: ./backend-trendbuy
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://trendbuy:trendbuy@db:5432/trendbuy
+      REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    networks:
+      - trendbuy_net
+
+  celery_worker:
+    build:
+      context: ./backend-trendbuy
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "services.celery_app.celery_app", "worker", "--loglevel=info"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://trendbuy:trendbuy@db:5432/trendbuy
+      REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - trendbuy_net
+
+  frontend:
+    build:
+      context: ./frontend-trendbuy
+      dockerfile: Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    networks:
+      - trendbuy_net
+
 volumes:
   trendbuy_postgres_data:
   trendbuy_redis_data:
+
+networks:
+  trendbuy_net:
+    driver: bridge
