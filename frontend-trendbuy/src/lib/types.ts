@@ -6,6 +6,7 @@ export type StoreOffer = {
   store: string;
   price: string;
   url: string;
+  image_url: string | null;
 };
 
 export type ProductFamily = {
@@ -14,6 +15,7 @@ export type ProductFamily = {
   is_historic_low: boolean;
   best_status: string;
   discount_percent: string;
+  image_url: string | null;
   stores: StoreOffer[];
 };
 
@@ -33,9 +35,45 @@ export type DashboardProduct = {
   cheapest_url: string | null;
   currency: string;
   status: string;
+  is_historic_low: boolean;
+  image_url: string | null;
   tracked_links: number;
 };
 
 export type DashboardResponse = {
   products: DashboardProduct[];
+};
+
+// Mirrors services/predictor.py::analyze_product / classify_best_moment.
+export type BestMoment = {
+  status: string;
+  current_price: string | null;
+  percentile_25: string | null;
+  historic_min: string | null;
+  records?: number;
+  message?: string;
+};
+
+export type PriceHistoryPoint = {
+  link_id: number;
+  store: string;
+  date: string | null;
+  price: string | null;
+};
+
+export type ForecastPoint = {
+  ds: string;
+  yhat: string | null;
+  yhat_lower: string | null;
+  yhat_upper: string | null;
+};
+
+export type ProductAnalysis = {
+  product_id: number;
+  product_name: string;
+  image_url: string | null;
+  best_moment: BestMoment;
+  history: PriceHistoryPoint[];
+  forecast_30_days: ForecastPoint[];
+  warnings: string[];
 };

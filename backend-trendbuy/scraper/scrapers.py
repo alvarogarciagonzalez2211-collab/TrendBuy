@@ -338,11 +338,23 @@ async def search_amazon(browser: Browser, keyword: str) -> list[dict[str, Any]]:
             except Exception:
                 product_url = None
 
+            try:
+                image_url = await card.locator("img").first.get_attribute("src", timeout=CARD_TIMEOUT_MS)
+            except Exception:
+                image_url = None
+
             if not name or price is None or not product_url:
                 continue
 
             items.append(
-                {"store": "Amazon Espana", "name": name, "price": price, "url": product_url, "error": None}
+                {
+                    "store": "Amazon Espana",
+                    "name": name,
+                    "price": price,
+                    "url": product_url,
+                    "image_url": image_url,
+                    "error": None,
+                }
             )
 
         return items
@@ -396,11 +408,23 @@ async def search_pccomponentes(browser: Browser, keyword: str) -> list[dict[str,
             except Exception:
                 product_url = None
 
+            try:
+                image_url = await card.locator("img").first.get_attribute("src", timeout=CARD_TIMEOUT_MS)
+            except Exception:
+                image_url = None
+
             if not name or price is None or not product_url:
                 continue
 
             items.append(
-                {"store": "PcComponentes", "name": name, "price": price, "url": product_url, "error": None}
+                {
+                    "store": "PcComponentes",
+                    "name": name,
+                    "price": price,
+                    "url": product_url,
+                    "image_url": image_url,
+                    "error": None,
+                }
             )
 
         return items
@@ -451,10 +475,27 @@ async def search_mediamarkt(browser: Browser, keyword: str) -> list[dict[str, An
             except Exception:
                 product_url = None
 
+            try:
+                # The card also carries a small badge image (energy label) after
+                # the product photo - .first is the product photo, confirmed
+                # live against real MediaMarkt search results (2026-07-14).
+                image_url = await card.locator("img").first.get_attribute("src", timeout=CARD_TIMEOUT_MS)
+            except Exception:
+                image_url = None
+
             if not name or price is None or not product_url:
                 continue
 
-            items.append({"store": "MediaMarkt", "name": name, "price": price, "url": product_url, "error": None})
+            items.append(
+                {
+                    "store": "MediaMarkt",
+                    "name": name,
+                    "price": price,
+                    "url": product_url,
+                    "image_url": image_url,
+                    "error": None,
+                }
+            )
 
         return items
     except Exception:
@@ -492,13 +533,30 @@ async def search_worten(browser: Browser, keyword: str) -> list[dict[str, Any]]:
             except Exception:
                 continue
 
+            try:
+                # Worten serves image src as a site-relative path ("/i/...."),
+                # unlike the other 3 stores which return an absolute URL.
+                raw_image = await card.locator("img").first.get_attribute("src", timeout=CARD_TIMEOUT_MS)
+            except Exception:
+                raw_image = None
+            image_url = urljoin(url, raw_image) if raw_image else None
+
             price = parse_price(raw_price) if raw_price else None
             product_url = urljoin(url, href) if href else None
 
             if not name or price is None or not product_url:
                 continue
 
-            items.append({"store": "Worten", "name": name, "price": price, "url": product_url, "error": None})
+            items.append(
+                {
+                    "store": "Worten",
+                    "name": name,
+                    "price": price,
+                    "url": product_url,
+                    "image_url": image_url,
+                    "error": None,
+                }
+            )
 
         return items
     except Exception:

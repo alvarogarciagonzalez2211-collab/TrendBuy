@@ -63,6 +63,10 @@ async def persist_family(
         enlace = await get_or_create_enlace(session, producto.id, item["store"], item["url"])
         previous_price = enlace.precio_actual
         enlace.precio_actual = price
+        # Keep the last known good image on a transient scrape miss instead of
+        # blanking it out - only overwrite when this pass actually found one.
+        if item.get("image_url"):
+            enlace.imagen_url = item["image_url"]
         session.add(HistorialPrecio(enlace_id=enlace.id, precio=price))
         updates.append(LinkUpdate(enlace=enlace, previous_price=previous_price, current_price=price))
 

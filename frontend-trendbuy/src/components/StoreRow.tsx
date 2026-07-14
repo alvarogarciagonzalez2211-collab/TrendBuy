@@ -1,4 +1,5 @@
 import type { StoreOffer } from "@/lib/types";
+import { StoreBadge } from "./StoreBadge";
 
 export function StoreRow({ offer, isCheapest }: { offer: StoreOffer; isCheapest: boolean }) {
   return (
@@ -9,13 +10,14 @@ export function StoreRow({ offer, isCheapest }: { offer: StoreOffer; isCheapest:
           : "border-zinc-200 dark:border-zinc-800"
       }`}
     >
-      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{offer.store}</span>
+      <StoreBadge store={offer.store} />
       <div className="flex items-center gap-3">
         <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{offer.price} €</span>
         <a
           href={offer.url}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={(event) => event.stopPropagation()}
           className="rounded-md bg-zinc-900 px-3 py-1 text-xs font-medium text-white transition hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
         >
           Comprar

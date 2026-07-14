@@ -157,6 +157,19 @@ async def get_products_dashboard(
         if best_moment["status"] not in DASHBOARD_DEAL_STATUSES:
             continue
 
+        # Same zero-tolerance comparison as services/search.py::search_products -
+        # deliberately stricter than the 5% band "Óptimo" uses internally.
+        historic_min = best_moment.get("historic_min")
+        is_historic_low = (
+            cheapest_link is not None
+            and historic_min is not None
+            and cheapest_link.precio_actual <= Decimal(historic_min)
+        )
+        image_url = next(
+            (link.imagen_url for link in (cheapest_link, latest_link) if link and link.imagen_url),
+            None,
+        )
+
         dashboard_items.append(
             {
                 "product_id": product.id,
@@ -169,6 +182,8 @@ async def get_products_dashboard(
                 "cheapest_url": cheapest_link.url if cheapest_link else None,
                 "currency": "EUR",
                 "status": best_moment["status"],
+                "is_historic_low": is_historic_low,
+                "image_url": image_url,
                 "tracked_links": len(product.enlaces),
             }
         )

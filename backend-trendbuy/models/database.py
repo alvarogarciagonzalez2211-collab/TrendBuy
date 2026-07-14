@@ -30,7 +30,11 @@ class Producto(Base):
     __tablename__ = "productos"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    nombre: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Text, not String(255): real scraped titles (Amazon especially) routinely
+    # exceed 255 chars with full marketing copy and blew up every insert for
+    # those products (StringDataRightTruncationError), silently 500-ing the
+    # whole search - confirmed live against a real "xiaomi" search.
+    nombre: Mapped[str] = mapped_column(Text, nullable=False)
     ean: Mapped[str | None] = mapped_column(String(13), unique=True, nullable=True)
 
     enlaces: Mapped[list["EnlaceTienda"]] = relationship(
@@ -48,6 +52,7 @@ class EnlaceTienda(Base):
     url: Mapped[str | None] = mapped_column(Text, nullable=True)
     sku: Mapped[str | None] = mapped_column(String(100), nullable=True)
     precio_actual: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    imagen_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     actualizado_en: Mapped[datetime] = mapped_column(
         DateTime,
         server_default=func.current_timestamp(),

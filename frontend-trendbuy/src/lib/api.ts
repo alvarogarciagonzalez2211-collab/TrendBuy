@@ -1,4 +1,4 @@
-import type { DashboardResponse, SearchResponse } from "./types";
+import type { DashboardResponse, ProductAnalysis, SearchResponse } from "./types";
 
 // Server-only: Server Components run inside the Next.js server process, which
 // can reach the backend directly (its own env var, never NEXT_PUBLIC_ - see
@@ -32,6 +32,29 @@ export async function searchProducts(query: string): Promise<SearchResponse> {
 
     if (!response.ok) {
       throw new Error(`Search request failed: ${response.status}`);
+    }
+
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Analysis is cheap (reads already-persisted history, no live scraping), so
+// it gets a much shorter timeout than searchProducts above.
+const ANALYSIS_TIMEOUT_MS = 15_000;
+
+export async function getProductAnalysis(productId: number): Promise<ProductAnalysis> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ANALYSIS_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`/backend/api/v1/products/${productId}/analysis`, {
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Analysis request failed: ${response.status}`);
     }
 
     return await response.json();

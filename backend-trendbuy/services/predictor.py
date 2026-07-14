@@ -46,6 +46,18 @@ async def get_product_name(session: AsyncSession, product_id: int) -> str | None
     return result.scalar_one_or_none()
 
 
+async def get_product_image(session: AsyncSession, product_id: int) -> str | None:
+    query = (
+        select(EnlaceTienda.imagen_url)
+        .where(EnlaceTienda.producto_id == product_id)
+        .where(EnlaceTienda.imagen_url.is_not(None))
+        .order_by(EnlaceTienda.actualizado_en.desc())
+        .limit(1)
+    )
+    result = await session.execute(query)
+    return result.scalar_one_or_none()
+
+
 def classify_best_moment(history: pd.DataFrame) -> dict[str, Any]:
     if history.empty:
         return {
@@ -142,6 +154,7 @@ async def analyze_product(session: AsyncSession, product_id: int) -> dict[str, A
 
     history = await load_product_price_history(session, product_id)
     best_moment = classify_best_moment(history)
+    image_url = await get_product_image(session, product_id)
     warnings = []
 
     if len(history) < MIN_FORECAST_POINTS:
@@ -159,6 +172,7 @@ async def analyze_product(session: AsyncSession, product_id: int) -> dict[str, A
     return {
         "product_id": product_id,
         "product_name": product_name,
+        "image_url": image_url,
         "best_moment": best_moment,
         "history": serialize_history(history),
         "forecast_30_days": forecast,

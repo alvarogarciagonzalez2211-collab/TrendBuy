@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone *)",
+      "Bash(CLONE_DIR=\"/c/Users/alvro/AppData/Local/Temp/claude/c--Users-alvro-Downloads-alvaro-TrendBuy/ba75f9dd-9f04-4a8c-9905-8552eda6150c/scratchpad/repo_check\" *)",
+      "Read(//c/Users/alvro/AppData/Local/Temp/claude/c--Users-alvro-Downloads-alvaro-TrendBuy/ba75f9dd-9f04-4a8c-9905-8552eda6150c/scratchpad/repo_check/**)",
+      "Bash(python -m venv .venv_check)",
+      "Bash(./.venv_check/Scripts/python.exe -m pip install --quiet --disable-pip-version-check -r requirements.txt)",
+      "Bash(\"./.venv/Scripts/python.exe\" -m py_compile api/main.py)",
+      "Bash(npx --yes create-next-app@latest frontend-trendbuy --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --no-turbopack)"
+    ]
+  }
+}

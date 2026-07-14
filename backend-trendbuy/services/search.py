@@ -92,11 +92,15 @@ async def search_products(session: AsyncSession, keyword: str) -> dict[str, Any]
                     "store": update.enlace.tienda,
                     "price": decimal_to_money(update.current_price),
                     "url": update.enlace.url,
+                    "image_url": update.enlace.imagen_url,
                 }
                 for update in updates
             ),
             key=lambda store: Decimal(store["price"]),
         )
+        # Cheapest store's photo first (same one already highlighted in the
+        # UI), falling back to any other store that has one.
+        image_url = next((store["image_url"] for store in stores if store["image_url"]), None)
 
         payloads.append(
             {
@@ -105,6 +109,7 @@ async def search_products(session: AsyncSession, keyword: str) -> dict[str, Any]
                 "is_historic_low": is_historic_low,
                 "best_status": best_moment.get("status"),
                 "discount_percent": str(discount_percent),
+                "image_url": image_url,
                 "stores": stores,
             }
         )
