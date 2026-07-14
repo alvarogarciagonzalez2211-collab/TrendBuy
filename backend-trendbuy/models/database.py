@@ -1,10 +1,12 @@
+import asyncio
 import os
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text, func
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -70,9 +72,36 @@ class HistorialPrecio(Base):
     enlace: Mapped[EnlaceTienda] = relationship(back_populates="historial")
 
 
+class Dispositivo(Base):
+    __tablename__ = "dispositivos"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    push_token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)
+    activo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp())
+    actualizado_en: Mapped[datetime] = mapped_column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+    )
+
+
+def _run_alembic_upgrade() -> None:
+    # Imported lazily so a missing/misconfigured alembic install doesn't break
+    # every import of this module, only actual startup.
+    from alembic import command
+    from alembic.config import Config
+
+    backend_root = Path(__file__).resolve().parent.parent
+    alembic_cfg = Config(str(backend_root / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(backend_root / "alembic"))
+    alembic_cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
+    command.upgrade(alembic_cfg, "head")
+
+
 async def init_db() -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await asyncio.to_thread(_run_alembic_upgrade)
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

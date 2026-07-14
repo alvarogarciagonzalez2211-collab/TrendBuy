@@ -10,6 +10,7 @@ from models.database import AsyncSessionLocal, EnlaceTienda, HistorialPrecio
 from scraper.scrapers import scrape_store_url, serialize_scraped_product
 from services.celery_app import celery_app
 from services.notifier import send_telegram_alert
+from services.push_notifier import notify_deal_push
 
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,13 @@ async def scrape_all_tracked_prices() -> dict[str, Any]:
                         current_price,
                         enlace.url,
                     )
+                    push_sent = await notify_deal_push(
+                        session,
+                        product_name or "Producto sin nombre",
+                        previous_price,
+                        current_price,
+                        enlace.url,
+                    )
                     alerts.append(
                         {
                             "product": product_name or "Producto sin nombre",
@@ -83,6 +91,7 @@ async def scrape_all_tracked_prices() -> dict[str, Any]:
                             "current_price": str(current_price),
                             "discount_percent": str(discount_percent),
                             "telegram_sent": str(alert_sent),
+                            "push_sent": str(push_sent),
                         }
                     )
 

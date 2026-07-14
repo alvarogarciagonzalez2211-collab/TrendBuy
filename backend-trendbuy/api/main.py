@@ -1,18 +1,22 @@
 import hashlib
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any
+from decimal import Decimal
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from models.database import EnlaceTienda, HistorialPrecio, Producto, get_session, init_db
+from models.database import Dispositivo, Producto, get_session, init_db
 from scraper.scrapers import scrape_comparison
+from services.persistence import persist_family
 from services.predictor import analyze_product, classify_best_moment, decimal_to_money
 from services.predictor import load_product_price_history
+from services.search import search_products as run_product_search
 
 
 def store_id(store: str | None) -> str:
@@ -65,66 +69,14 @@ app.add_middleware(
 )
 
 
-async def get_or_create_producto(session: AsyncSession, nombre: str) -> Producto:
-    result = await session.execute(select(Producto).where(Producto.nombre == nombre))
-    producto = result.scalar_one_or_none()
-
-    if producto is not None:
-        return producto
-
-    producto = Producto(nombre=nombre)
-    session.add(producto)
-    await session.flush()
-    return producto
-
-
-async def get_or_create_enlace(
-    session: AsyncSession,
-    producto_id: int,
-    tienda: str,
-    url: str,
-) -> EnlaceTienda:
-    result = await session.execute(
-        select(EnlaceTienda).where(
-            EnlaceTienda.producto_id == producto_id,
-            EnlaceTienda.tienda == tienda,
-            EnlaceTienda.url == url,
-        )
-    )
-    enlace = result.scalar_one_or_none()
-
-    if enlace is not None:
-        return enlace
-
-    enlace = EnlaceTienda(producto_id=producto_id, tienda=tienda, url=url)
-    session.add(enlace)
-    await session.flush()
-    return enlace
-
-
 async def persist_scraped_products(
     session: AsyncSession,
     query: str,
     products: list[dict[str, Any]],
 ) -> None:
     fallback_name = query.strip() or "Producto sin nombre"
-    product_name = next((item["name"] for item in products if item.get("name")), fallback_name)
-    producto = await get_or_create_producto(session, product_name)
-
-    for item in products:
-        price = item.get("price")
-        if price is None:
-            continue
-
-        enlace = await get_or_create_enlace(
-            session=session,
-            producto_id=producto.id,
-            tienda=item["store"],
-            url=item["url"],
-        )
-        enlace.precio_actual = price
-        session.add(HistorialPrecio(enlace_id=enlace.id, precio=price))
-
+    canonical_name = next((item["name"] for item in products if item.get("name")), fallback_name)
+    await persist_family(session, products, canonical_name)
     await session.commit()
 
 
@@ -177,6 +129,12 @@ async def search_products(
     return await compare_products(query=q, session=session)
 
 
+# Only these statuses count as an actual "deal" worth surfacing on the home
+# screen; order here doubles as the sort priority (best first).
+DASHBOARD_DEAL_STATUSES = ("Óptimo", "Buena Compra")
+_DASHBOARD_STATUS_RANK = {status: rank for rank, status in enumerate(DASHBOARD_DEAL_STATUSES)}
+
+
 @app.get("/api/v1/products/dashboard")
 async def get_products_dashboard(
     session: AsyncSession = Depends(get_session),
@@ -196,6 +154,9 @@ async def get_products_dashboard(
         history = await load_product_price_history(session, product.id)
         best_moment = classify_best_moment(history)
 
+        if best_moment["status"] not in DASHBOARD_DEAL_STATUSES:
+            continue
+
         dashboard_items.append(
             {
                 "product_id": product.id,
@@ -212,6 +173,15 @@ async def get_products_dashboard(
             }
         )
 
+    # Best status first, cheapest price first within the same status - the
+    # frontend renders this order as-is rather than re-ranking client-side.
+    dashboard_items.sort(
+        key=lambda item: (
+            _DASHBOARD_STATUS_RANK[item["status"]],
+            Decimal(item["cheapest_price"]) if item["cheapest_price"] is not None else Decimal("Infinity"),
+        )
+    )
+
     return {"products": dashboard_items}
 
 
@@ -226,3 +196,41 @@ async def get_product_analysis(
         raise HTTPException(status_code=404, detail="Product not found")
 
     return analysis
+
+
+@app.get("/api/v1/search")
+async def search_endpoint(
+    q: str = Query(..., min_length=1, description="Keyword search across every supported store."),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    return await run_product_search(session, q)
+
+
+class DeviceRegistration(BaseModel):
+    push_token: str
+    platform: Literal["ios", "android"]
+
+
+@app.post("/api/v1/devices", status_code=201)
+async def register_device(
+    payload: DeviceRegistration,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    result = await session.execute(select(Dispositivo).where(Dispositivo.push_token == payload.push_token))
+    device = result.scalar_one_or_none()
+
+    if device is None:
+        device = Dispositivo(push_token=payload.push_token, platform=payload.platform)
+        session.add(device)
+    else:
+        device.platform = payload.platform
+        device.activo = True
+
+    await session.commit()
+
+    return {
+        "id": device.id,
+        "push_token": device.push_token,
+        "platform": device.platform,
+        "activo": device.activo,
+    }

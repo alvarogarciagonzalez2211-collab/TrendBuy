@@ -69,7 +69,10 @@ services:
       context: ./frontend-trendbuy
       dockerfile: Dockerfile
     environment:
-      NEXT_PUBLIC_API_URL: http://api:8000
+      # Server-only: read by next.config.ts (rewrites) and Server Components.
+      # Not NEXT_PUBLIC_ - the browser can't resolve "api", the Next.js server
+      # proxies for it via the /backend/* rewrite. See frontend-trendbuy/README.
+      API_URL: http://api:8000
     ports:
       - "3000:3000"
     depends_on:
