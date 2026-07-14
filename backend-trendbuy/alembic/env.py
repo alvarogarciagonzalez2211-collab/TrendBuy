@@ -19,7 +19,11 @@ from models.database import Base  # noqa: E402
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: migrations run in-process at FastAPI startup
+    # (see models/database.py::init_db), and fileConfig's default of True would
+    # silently disable uvicorn's own loggers (uvicorn.error/uvicorn.access) right
+    # after migrating, swallowing every request log and error traceback from then on.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

@@ -2,6 +2,11 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+# Fixed path so browsers installed as root (below) are still found at runtime,
+# when the process drops to the unprivileged `appuser` whose $HOME differs -
+# without this, Playwright installs under /root/.cache/ms-playwright and the
+# app looks in /home/appuser/.cache/ms-playwright instead, finding nothing.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app
 
@@ -27,7 +32,7 @@ RUN python -m playwright install chromium --with-deps
 COPY . .
 
 # Create non-root user
-RUN useradd -m appuser && chown -R appuser:appuser /app
+RUN useradd -m appuser && chown -R appuser:appuser /app "$PLAYWRIGHT_BROWSERS_PATH"
 USER appuser
 
 EXPOSE 8000
