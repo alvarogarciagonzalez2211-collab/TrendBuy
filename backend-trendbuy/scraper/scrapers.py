@@ -594,12 +594,14 @@ async def search_ikea(browser: Browser, keyword: str) -> list[dict[str, Any]]:
             card = cards.nth(index)
 
             try:
-                # The second product image carries a short, clean "<line> <type>,
-                # <color>" alt text (e.g. "ROSENTORP Silla, blanco") - confirmed
-                # live, more reliable than assembling it from separate text nodes.
-                name = await card.locator("img.plp-product__image--alt").first.get_attribute(
-                    "alt", timeout=CARD_TIMEOUT_MS
-                )
+                # IKEA's second product image carries a short, clean "<line>
+                # <type>, <color>" alt (e.g. "ROSENTORP Silla, blanco"), but it
+                # only attaches once the lazy-loaded image itself resolves - the
+                # stealth context blocks image requests (see BLOCKED_RESOURCE_TYPES),
+                # so that element never appears live. The first (eager-loaded)
+                # image's alt is a longer full-sentence description but is always
+                # present regardless of the image request being blocked.
+                name = await card.locator("img").first.get_attribute("alt", timeout=CARD_TIMEOUT_MS)
                 name = " ".join(name.split()) if name else None
             except Exception:
                 name = None
@@ -747,7 +749,13 @@ async def search_druni(browser: Browser, keyword: str) -> list[dict[str, Any]]:
         search_input = page.locator("input[type=search]").first
         try:
             await search_input.wait_for(state="visible", timeout=TIMEOUT_MS)
-            await search_input.click(timeout=CARD_TIMEOUT_MS)
+            # A geoip popup (x-data="initGeoipPopup()") stays in the DOM and
+            # intercepts pointer events even once it's no longer visually
+            # present - confirmed live, a plain click() times out waiting for
+            # it to stop blocking. force=True skips that actionability check;
+            # fill() still requires the element to genuinely be editable, so
+            # this can't silently type into the wrong place.
+            await search_input.click(timeout=CARD_TIMEOUT_MS, force=True)
             await search_input.fill(keyword, timeout=CARD_TIMEOUT_MS)
             await search_input.press("Enter")
         except Exception:
