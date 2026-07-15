@@ -2,6 +2,7 @@
 
 import type { DashboardProduct } from "@/lib/types";
 import { useProductAnalysis } from "@/lib/useProductAnalysis";
+import { FavoriteButton } from "./FavoriteButton";
 import { HistoricLowBadge } from "./HistoricLowBadge";
 import { ProductAnalysisPanel } from "./ProductAnalysisPanel";
 import { ProductImage } from "./ProductImage";
@@ -11,7 +12,13 @@ export function DealCard({ product }: { product: DashboardProduct }) {
   const { expanded, status, analysis, toggle } = useProductAnalysis(product.product_id);
 
   return (
-    <article className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <article className="relative flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      {/* Sibling to the toggle button below, not nested inside it - a
+          <button> can't validly contain another <button>. */}
+      <div className="absolute right-6 top-6 z-10">
+        <FavoriteButton productId={product.product_id} />
+      </div>
+
       <button type="button" onClick={toggle} aria-expanded={expanded} className="flex flex-col gap-2 text-left">
         <div className="relative">
           {product.is_historic_low && <HistoricLowBadge />}

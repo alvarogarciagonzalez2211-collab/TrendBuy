@@ -2,6 +2,7 @@
 
 import type { ProductFamily } from "@/lib/types";
 import { useProductAnalysis } from "@/lib/useProductAnalysis";
+import { FavoriteButton } from "./FavoriteButton";
 import { HistoricLowBadge } from "./HistoricLowBadge";
 import { ProductAnalysisPanel } from "./ProductAnalysisPanel";
 import { ProductImage } from "./ProductImage";
@@ -13,7 +14,13 @@ export function ProductFamilyCard({ family }: { family: ProductFamily }) {
   const { expanded, status, analysis, toggle } = useProductAnalysis(family.product_id);
 
   return (
-    <article className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <article className="relative flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      {/* Sibling to the toggle button below, not nested inside it - a
+          <button> can't validly contain another <button>. */}
+      <div className="absolute right-3 top-3 z-10">
+        <FavoriteButton productId={family.product_id} />
+      </div>
+
       <button
         type="button"
         onClick={toggle}
@@ -27,7 +34,7 @@ export function ProductFamilyCard({ family }: { family: ProductFamily }) {
           </div>
 
           <div className="flex flex-1 flex-col gap-2">
-            <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="flex flex-wrap items-start justify-between gap-2 pr-8">
               <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">{family.name}</h3>
               <StatusBadge status={family.best_status} />
             </div>

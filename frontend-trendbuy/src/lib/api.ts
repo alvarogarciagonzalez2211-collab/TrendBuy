@@ -1,4 +1,4 @@
-import type { DashboardResponse, ProductAnalysis, SearchResponse } from "./types";
+import type { Category, DashboardResponse, Favorite, ProductAnalysis, SearchResponse, User } from "./types";
 
 // Server-only: Server Components run inside the Next.js server process, which
 // can reach the backend directly (its own env var, never NEXT_PUBLIC_ - see
@@ -60,5 +60,90 @@ export async function getProductAnalysis(productId: number): Promise<ProductAnal
     return await response.json();
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+// --- Auth ---------------------------------------------------------------
+// All client-only, through the /backend proxy - same-origin, so the session
+// cookie rides along automatically with no extra config on these calls.
+
+export async function requestLogin(email: string): Promise<void> {
+  const response = await fetch("/backend/api/v1/auth/request-login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Login request failed: ${response.status}`);
+  }
+}
+
+export async function confirmLogin(token: string): Promise<User> {
+  const response = await fetch("/backend/api/v1/auth/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Login confirm failed: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function logout(): Promise<void> {
+  await fetch("/backend/api/v1/auth/logout", { method: "POST" });
+}
+
+export async function getMe(): Promise<User | null> {
+  const response = await fetch("/backend/api/v1/auth/me");
+  if (response.status === 401) return null;
+  if (!response.ok) throw new Error(`Me request failed: ${response.status}`);
+  return response.json();
+}
+
+// --- Favorites & categories ----------------------------------------------
+
+export async function getCategories(): Promise<Category[]> {
+  const response = await fetch("/backend/api/v1/categories");
+  if (!response.ok) throw new Error(`Categories request failed: ${response.status}`);
+  const data = await response.json();
+  return data.categories;
+}
+
+export async function getFavorites(): Promise<Favorite[]> {
+  const response = await fetch("/backend/api/v1/favorites");
+  if (!response.ok) throw new Error(`Favorites request failed: ${response.status}`);
+  const data = await response.json();
+  return data.favorites;
+}
+
+export type FavoriteInput = {
+  producto_id?: number;
+  categoria_id?: number;
+  precio_maximo?: number | null;
+  descuento_minimo_percent?: number | null;
+};
+
+export async function createFavorite(payload: FavoriteInput): Promise<Favorite> {
+  const response = await fetch("/backend/api/v1/favorites", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Create favorite failed: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function deleteFavorite(id: number): Promise<void> {
+  const response = await fetch(`/backend/api/v1/favorites/${id}`, { method: "DELETE" });
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`Delete favorite failed: ${response.status}`);
   }
 }

@@ -28,5 +28,12 @@ celery_app.conf.update(
             "task": "services.tasks.scrape_prices",
             "schedule": crontab(hour="*/12", minute=0),
         },
+        # Off-peak, once a day: re-runs every keyword ever searched so new
+        # listings get picked up and price history keeps growing without
+        # anyone re-searching by hand - see services/tasks.py::refresh_all_search_keywords.
+        "refresh-search-keywords-daily": {
+            "task": "services.tasks.refresh_search_keywords",
+            "schedule": crontab(hour=6, minute=0),
+        },
     },
 )

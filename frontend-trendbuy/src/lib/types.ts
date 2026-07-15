@@ -77,3 +77,24 @@ export type ProductAnalysis = {
   forecast_30_days: ForecastPoint[];
   warnings: string[];
 };
+
+// Mirrors api/auth.py and api/favorites.py.
+export type User = {
+  id: number;
+  email: string;
+};
+
+export type Category = {
+  id: number;
+  nombre: string;
+};
+
+export type Favorite = {
+  id: number;
+  producto_id: number | null;
+  producto_nombre: string | null;
+  categoria_id: number | null;
+  categoria_nombre: string | null;
+  precio_maximo: string | null;
+  descuento_minimo_percent: string | null;
+};

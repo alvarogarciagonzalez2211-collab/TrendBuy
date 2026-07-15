@@ -16,18 +16,37 @@ async function proxy(request: NextRequest, path: string[]): Promise<NextResponse
 
   try {
     const hasBody = request.method !== "GET" && request.method !== "HEAD";
+    const cookie = request.headers.get("cookie");
+    const headers: HeadersInit = hasBody ? { "Content-Type": "application/json" } : {};
+    // The session cookie is same-origin from the browser's point of view
+    // (it only ever talks to /backend/...) - the browser sends it here
+    // automatically, but this proxy is a separate hop to API_URL and needs
+    // to forward it by hand, or every authenticated request would silently
+    // look logged-out to the actual backend.
+    if (cookie) headers["cookie"] = cookie;
+
     const upstream = await fetch(targetUrl, {
       method: request.method,
-      headers: hasBody ? { "Content-Type": "application/json" } : undefined,
+      headers,
       body: hasBody ? await request.text() : undefined,
       signal: controller.signal,
     });
 
     const body = await upstream.text();
-    return new NextResponse(body, {
+    const response = new NextResponse(body, {
       status: upstream.status,
       headers: { "Content-Type": upstream.headers.get("Content-Type") ?? "application/json" },
     });
+
+    // Same idea in reverse: a Set-Cookie from the backend (login, logout)
+    // has to be relayed to the browser as if this proxy weren't there.
+    // Set-Cookie can't be safely read via a single header.get() (multiple
+    // cookies can't be comma-joined), hence getSetCookie().
+    for (const setCookie of upstream.headers.getSetCookie()) {
+      response.headers.append("set-cookie", setCookie);
+    }
+
+    return response;
   } catch {
     return NextResponse.json({ error: "El backend no respondió a tiempo." }, { status: 504 });
   } finally {
@@ -43,6 +62,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
+  const { path } = await context.params;
+  return proxy(request, path);
+}
+
+export async function DELETE(request: NextRequest, context: RouteContext) {
   const { path } = await context.params;
   return proxy(request, path);
 }

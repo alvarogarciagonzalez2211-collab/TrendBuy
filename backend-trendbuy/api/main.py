@@ -11,6 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from api.auth import router as auth_router
+from api.favorites import router as favorites_router
 from models.database import Dispositivo, Producto, get_session, init_db
 from scraper.scrapers import scrape_comparison
 from services.persistence import persist_family
@@ -67,6 +69,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)
+app.include_router(favorites_router)
 
 
 async def persist_scraped_products(
