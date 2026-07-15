@@ -1,3 +1,5 @@
+![TrendBuy](imgs/Banner.png)
+
 # TrendBuy
 
 TrendBuy es una plataforma para rastrear, comparar y analizar precios en e-commerce. El proyecto esta dividido en backend FastAPI y frontend Next.js.

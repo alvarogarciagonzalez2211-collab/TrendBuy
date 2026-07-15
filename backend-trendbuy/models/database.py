@@ -6,7 +6,18 @@ from decimal import Decimal
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -124,6 +135,12 @@ class Usuario(Base):
     # deal-alert email, independent of the favoritos themselves (a user can
     # opt out of email entirely without losing their favorites/thresholds).
     notificaciones_activas: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    # Personal Telegram chat, linked via the deep-link + webhook flow in
+    # api/telegram.py (t.me/<bot>?start=<telegram_link_code>). When set,
+    # services/favorite_notifier.py sends deal alerts here instead of email.
+    telegram_chat_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
+    telegram_link_code: Mapped[str | None] = mapped_column(String(16), unique=True, nullable=True)
+    telegram_link_code_expira_en: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     favoritos: Mapped[list["Favorito"]] = relationship(back_populates="usuario", cascade="all, delete-orphan")
 

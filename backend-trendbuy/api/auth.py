@@ -131,7 +131,7 @@ async def logout(
 
 @router.get("/me")
 async def me(usuario: Usuario = Depends(get_current_user)) -> dict[str, Any]:
-    return {"id": usuario.id, "email": usuario.email}
+    return {"id": usuario.id, "email": usuario.email, "telegram_linked": usuario.telegram_chat_id is not None}
 
 
 def _unsubscribe_page(message: str) -> HTMLResponse:

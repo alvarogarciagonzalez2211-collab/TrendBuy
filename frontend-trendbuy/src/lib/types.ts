@@ -85,6 +85,7 @@ export type ProductAnalysis = {
 export type User = {
   id: number;
   email: string;
+  telegram_linked: boolean;
 };
 
 export type Category = {

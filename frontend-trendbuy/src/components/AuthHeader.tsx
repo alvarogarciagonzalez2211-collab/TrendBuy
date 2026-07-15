@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { requestLogin } from "@/lib/api";
 import { useAuth } from "@/lib/AppProviders";
@@ -24,15 +23,17 @@ export function AuthHeader() {
     }
   }
 
-  if (loading) return <div className="h-8" />;
+  if (loading) return <div className="h-9 w-24" />;
 
   if (user) {
     return (
-      <div className="flex items-center gap-3 text-sm">
-        <Link href="/favoritos" className="text-zinc-600 hover:underline dark:text-zinc-300">
-          Favoritos
-        </Link>
-        <span className="text-zinc-500 dark:text-zinc-400">{user.email}</span>
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <span className="flex items-center gap-2">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-xs font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900">
+            {user.email.charAt(0).toUpperCase()}
+          </span>
+          <span className="text-zinc-500 dark:text-zinc-400">{user.email}</span>
+        </span>
         <button
           type="button"
           onClick={() => logout()}
@@ -49,19 +50,19 @@ export function AuthHeader() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex items-center gap-2">
+    <form onSubmit={handleSubmit} className="flex flex-wrap items-center gap-2">
       <input
         type="email"
         required
         value={email}
         onChange={(event) => setEmail(event.target.value)}
         placeholder="tu@email.com"
-        className="w-40 rounded-md border border-zinc-300 px-2.5 py-1 text-xs text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+        className="w-full min-w-0 rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs text-zinc-900 outline-none focus:border-zinc-500 sm:w-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
       />
       <button
         type="submit"
         disabled={status === "sending"}
-        className="rounded-md bg-zinc-900 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+        className="rounded-md bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
       >
         {status === "sending" ? "Enviando..." : "Entrar"}
       </button>

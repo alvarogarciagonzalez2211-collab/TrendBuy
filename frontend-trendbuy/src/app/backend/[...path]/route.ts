@@ -25,6 +25,12 @@ async function proxy(request: NextRequest, path: string[]): Promise<NextResponse
     // look logged-out to the actual backend.
     if (cookie) headers["cookie"] = cookie;
 
+    // Telegram signs webhook calls with this header (api/telegram.py verifies
+    // it against TELEGRAM_WEBHOOK_SECRET) - it has to survive this hop too,
+    // same reasoning as the cookie forwarding above.
+    const telegramSecret = request.headers.get("x-telegram-bot-api-secret-token");
+    if (telegramSecret) headers["x-telegram-bot-api-secret-token"] = telegramSecret;
+
     const upstream = await fetch(targetUrl, {
       method: request.method,
       headers,

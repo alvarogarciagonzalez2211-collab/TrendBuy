@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { getDashboard } from "@/lib/api";
 import { SearchBar } from "@/components/SearchBar";
 import { FilterableDeals } from "@/components/FilterableDeals";
@@ -21,7 +22,19 @@ export default async function Home() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-10 px-6 py-12">
-      <section className="flex flex-col gap-2">
+      <section className="relative flex flex-col gap-2 overflow-hidden rounded-2xl px-2 py-4">
+        {/* Very subtle price-trend line pattern, light mode only - see
+            nano-banana-brand-assets.md for the source prompt. Its lines fade
+            toward white already; dark:hidden avoids it clashing with the
+            near-black dark background. */}
+        <Image
+          src="/hero-pattern.png"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="-z-10 object-cover opacity-60 [mask-image:linear-gradient(to_bottom,black,transparent)] dark:hidden"
+        />
         <h1 className="text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl dark:text-zinc-50">
           Compra en el momento justo
         </h1>

@@ -1,13 +1,10 @@
 import type { ProductFamily } from "@/lib/types";
+import { EmptyState } from "./EmptyState";
 import { ProductFamilyCard } from "./ProductFamilyCard";
 
 export function SearchResults({ families, query }: { families: ProductFamily[]; query: string }) {
   if (families.length === 0) {
-    return (
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        No se han encontrado resultados para &quot;{query}&quot; en ninguna tienda.
-      </p>
-    );
+    return <EmptyState message={`No se han encontrado resultados para "${query}" en ninguna tienda.`} />;
   }
 
   return (

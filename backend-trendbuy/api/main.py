@@ -1,4 +1,6 @@
 import hashlib
+import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from decimal import Decimal
@@ -13,9 +15,11 @@ from sqlalchemy.orm import selectinload
 
 from api.auth import router as auth_router
 from api.favorites import router as favorites_router
+from api.telegram import router as telegram_router
 from models.database import Dispositivo, Producto, get_session, init_db
 from scraper.scrapers import scrape_comparison
 from services.categories import match_categories
+from services.notifier import set_telegram_webhook
 from services.persistence import persist_family
 from services.predictor import (
     analyze_product,
@@ -26,6 +30,9 @@ from services.predictor import (
     recent_link_prices,
 )
 from services.search import search_products as run_product_search
+
+
+logger = logging.getLogger(__name__)
 
 
 def store_id(store: str | None) -> str:
@@ -61,7 +68,31 @@ def serialize_api_product(product: dict[str, Any]) -> dict[str, Any]:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await init_db()
+    await _configure_telegram_webhook()
     yield
+
+
+async def _configure_telegram_webhook() -> None:
+    # Self-configuring on every startup so a restart (or a fresh Cloudflare
+    # tunnel URL, which changes on every `cloudflared` run) keeps the webhook
+    # pointed at wherever FRONTEND_URL currently says the public site lives -
+    # same reasoning as FRONTEND_URL feeding the magic-link email.
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    webhook_secret = os.getenv("TELEGRAM_WEBHOOK_SECRET")
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+
+    if not bot_token or not webhook_secret:
+        return
+
+    if frontend_url.startswith("http://localhost") or frontend_url.startswith("http://127.0.0.1"):
+        logger.warning("Telegram webhook not configured: FRONTEND_URL is localhost, Telegram requires public HTTPS.")
+        return
+
+    webhook_url = f"{frontend_url}/backend/api/v1/telegram/webhook"
+    try:
+        await set_telegram_webhook(webhook_url, webhook_secret)
+    except Exception:
+        logger.exception("Failed to configure Telegram webhook at startup.")
 
 
 app = FastAPI(title="TrendBuy API", version="0.1.0", lifespan=lifespan)
@@ -79,6 +110,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(favorites_router)
+app.include_router(telegram_router)
 
 
 async def persist_scraped_products(

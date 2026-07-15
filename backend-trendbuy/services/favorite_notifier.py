@@ -10,6 +10,7 @@ from models.database import Categoria, Favorito, Producto
 from services.auth import FRONTEND_URL, generate_unsubscribe_token
 from services.categories import match_categories
 from services.email_sender import send_deal_alert_email
+from services.notifier import send_telegram_deal_alert
 
 
 logger = logging.getLogger(__name__)
@@ -63,15 +64,22 @@ async def notify_matching_favorites(
         if favorito.descuento_minimo_percent is not None and discount_percent < favorito.descuento_minimo_percent:
             continue
 
-        unsubscribe_token = generate_unsubscribe_token(favorito.usuario_id)
-        unsubscribe_url = f"{FRONTEND_URL}/backend/api/v1/auth/unsubscribe?token={unsubscribe_token}"
-
         try:
-            ok = await send_deal_alert_email(
-                favorito.usuario.email, producto.nombre, previous_price, current_price, url, unsubscribe_url
-            )
+            if favorito.usuario.telegram_chat_id is not None:
+                # Personal Telegram replaces email once linked (services/auth.py
+                # + api/telegram.py) - no unsubscribe link needed here, /stop
+                # in the chat does the same job (see api/telegram.py webhook).
+                ok = await send_telegram_deal_alert(
+                    favorito.usuario.telegram_chat_id, producto.nombre, previous_price, current_price, url
+                )
+            else:
+                unsubscribe_token = generate_unsubscribe_token(favorito.usuario_id)
+                unsubscribe_url = f"{FRONTEND_URL}/backend/api/v1/auth/unsubscribe?token={unsubscribe_token}"
+                ok = await send_deal_alert_email(
+                    favorito.usuario.email, producto.nombre, previous_price, current_price, url, unsubscribe_url
+                )
         except Exception as exc:
-            logger.exception("Favorite alert email failed for favorito_id=%s: %s", favorito.id, exc)
+            logger.exception("Favorite alert failed for favorito_id=%s: %s", favorito.id, exc)
             continue
 
         if ok:

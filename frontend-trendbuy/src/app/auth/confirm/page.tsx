@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { confirmLogin } from "@/lib/api";
@@ -57,7 +58,15 @@ function ConfirmForm() {
 
 export default function ConfirmPage() {
   return (
-    <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-4 px-6 py-12 text-center">
+    <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-6 px-6 py-12 text-center">
+      <Image
+        src="/wordmark-lockup.png"
+        alt="TrendBuy"
+        width={1242}
+        height={230}
+        priority
+        className="h-9 w-auto dark:hidden"
+      />
       <Suspense fallback={null}>
         <ConfirmForm />
       </Suspense>

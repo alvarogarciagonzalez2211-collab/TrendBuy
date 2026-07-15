@@ -1,12 +1,11 @@
 import type { DashboardProduct } from "@/lib/types";
 import { DealCard } from "./DealCard";
+import { EmptyState } from "./EmptyState";
 
 export function DealsGrid({ products }: { products: DashboardProduct[] }) {
   if (products.length === 0) {
     return (
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        Todavía no hay chollos detectados. Prueba a buscar un producto arriba para empezar a rastrear precios.
-      </p>
+      <EmptyState message="Todavía no hay chollos detectados. Prueba a buscar un producto arriba para empezar a rastrear precios." />
     );
   }
 

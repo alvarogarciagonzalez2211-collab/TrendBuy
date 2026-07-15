@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createFavorite, deleteFavorite, getCategories } from "@/lib/api";
 import { useAuth, useFavorites } from "@/lib/AppProviders";
 import type { Category, Favorite } from "@/lib/types";
+import { TelegramLinkPanel } from "@/components/TelegramLinkPanel";
 
 function FavoriteRow({ favorite }: { favorite: Favorite }) {
   const { refresh } = useFavorites();
@@ -176,8 +177,8 @@ export default function FavoritosPage() {
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-12">
       <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">Tus favoritos</h1>
       <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        Te avisamos por correo cuando un producto o tema favorito baje de precio, segun los limites que pongas
-        aqui. Sin limites, te avisamos con cualquier bajada real.
+        Te avisamos por correo (o por Telegram, si lo vinculas abajo) cuando un producto o tema favorito baje de
+        precio, segun los limites que pongas aqui. Sin limites, te avisamos con cualquier bajada real.
       </p>
 
       {loading ? null : !user ? (
@@ -186,6 +187,7 @@ export default function FavoritosPage() {
         </p>
       ) : (
         <>
+          <TelegramLinkPanel />
           <AddCategoryFavorite />
 
           {favoritesLoading ? (

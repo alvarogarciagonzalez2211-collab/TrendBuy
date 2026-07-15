@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 LOGIN_TOKEN_TTL_MINUTES = 15
 SESSION_TTL_DAYS = 30
 SESSION_COOKIE_NAME = "trendbuy_session"
+TELEGRAM_LINK_CODE_TTL_MINUTES = 10
 
 # Only true behind real HTTPS - local docker compose serves the frontend over
 # plain http://localhost, and browsers silently refuse to store/send a
@@ -135,3 +136,48 @@ def verify_unsubscribe_token(token: str) -> int | None:
         return None
 
     return user_id
+
+
+async def generate_telegram_link_code(session: AsyncSession, usuario: Usuario) -> str:
+    # Short code (fits comfortably in a /start deep-link payload, which
+    # Telegram caps at 64 chars) - re-requesting a code overwrites any
+    # previous unused one, so only the latest link the user opened works.
+    code = secrets.token_urlsafe(6)
+    usuario.telegram_link_code = code
+    usuario.telegram_link_code_expira_en = datetime.utcnow() + timedelta(minutes=TELEGRAM_LINK_CODE_TTL_MINUTES)
+    await session.commit()
+    return code
+
+
+async def consume_telegram_link_code(session: AsyncSession, code: str, chat_id: int) -> Usuario | None:
+    result = await session.execute(select(Usuario).where(Usuario.telegram_link_code == code))
+    usuario = result.scalar_one_or_none()
+
+    if usuario is None or usuario.telegram_link_code_expira_en is None:
+        return None
+    if usuario.telegram_link_code_expira_en < datetime.utcnow():
+        return None
+
+    # A chat_id can only belong to one account at a time (unique constraint) -
+    # re-linking the same Telegram chat to a different email transfers it
+    # rather than erroring out.
+    previous_owner = await session.execute(select(Usuario).where(Usuario.telegram_chat_id == chat_id))
+    previous_usuario = previous_owner.scalar_one_or_none()
+    if previous_usuario is not None and previous_usuario.id != usuario.id:
+        previous_usuario.telegram_chat_id = None
+
+    usuario.telegram_chat_id = chat_id
+    usuario.telegram_link_code = None
+    usuario.telegram_link_code_expira_en = None
+    await session.commit()
+    return usuario
+
+
+async def unlink_telegram(session: AsyncSession, usuario: Usuario) -> None:
+    usuario.telegram_chat_id = None
+    await session.commit()
+
+
+async def get_usuario_by_telegram_chat_id(session: AsyncSession, chat_id: int) -> Usuario | None:
+    result = await session.execute(select(Usuario).where(Usuario.telegram_chat_id == chat_id))
+    return result.scalar_one_or_none()

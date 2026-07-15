@@ -104,6 +104,17 @@ export async function getMe(): Promise<User | null> {
   return response.json();
 }
 
+export async function getTelegramLinkCode(): Promise<{ deep_link: string }> {
+  const response = await fetch("/backend/api/v1/auth/telegram/link-code", { method: "POST" });
+  if (!response.ok) throw new Error(`Telegram link-code request failed: ${response.status}`);
+  return response.json();
+}
+
+export async function unlinkTelegram(): Promise<void> {
+  const response = await fetch("/backend/api/v1/auth/telegram/unlink", { method: "POST" });
+  if (!response.ok) throw new Error(`Telegram unlink failed: ${response.status}`);
+}
+
 // --- Favorites & categories ----------------------------------------------
 
 export async function getCategories(): Promise<Category[]> {

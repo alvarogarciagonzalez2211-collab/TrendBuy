@@ -142,10 +142,42 @@ concreto o una categoría entera, con `precio_maximo`/`descuento_minimo_percent`
 `services/favorite_notifier.py` decide a quién avisar por email en cada bajada de precio —
 independiente del broadcast de Telegram/push que ya existía (umbral fijo 15%), no lo toca.
 
-**IMPORTANTE — Telegram por usuario NO existe todavía.** El bot de Telegram sigue siendo el
-broadcast único original (una sola cuenta/chat). Un Telegram por usuario requiere un webhook
-con URL pública HTTPS real — Telegram no acepta `localhost` ni HTTP, así que esta feature
-está bloqueada hasta que haya despliegue real con dominio.
+**Telegram por usuario — hecho (sesión 2026-07-15, tras el túnel de Cloudflare).** El bot de
+Telegram original (broadcast, `TELEGRAM_CHAT_ID` fijo, `services/notifier.py::send_telegram_alert`)
+sigue intacto y sin tocar. Añadido, aditivo, sin romper eso:
+- Migración `0008`: `usuarios.telegram_chat_id` (BIGINT UNIQUE), `telegram_link_code` +
+  `telegram_link_code_expira_en` (código de un solo uso, TTL 10 min).
+- `services/auth.py`: `generate_telegram_link_code`/`consume_telegram_link_code`/`unlink_telegram`
+  — vincular un chat ya usado por otra cuenta se lo transfiere (no falla el `UNIQUE`).
+- `services/notifier.py`: `send_telegram_message` genérico (usado por el broadcast y por lo
+  nuevo), `get_bot_username()` (cacheado, vía `getMe`), `set_telegram_webhook()`.
+- `api/telegram.py` (nuevo router, `/api/v1`): `POST /auth/telegram/link-code` (autenticado,
+  devuelve `t.me/<bot>?start=<code>`), `POST /auth/telegram/unlink`, `POST /telegram/webhook`
+  (valida `X-Telegram-Bot-Api-Secret-Token` contra `TELEGRAM_WEBHOOK_SECRET`; procesa `/start
+  <code>` para vincular y `/stop` para desactivar `notificaciones_activas` desde el propio
+  chat). Los envíos de respuesta del webhook van envueltos en try/except (`_reply`) — un fallo
+  de Telegram al mandar mensaje (usuario bloqueó el bot, chat inválido) no debe tirar un 500,
+  o Telegram reintentaría el mismo update sin parar.
+- `api/main.py`: en el `lifespan`, `_configure_telegram_webhook()` llama a `setWebhook` en
+  cada arranque apuntando a `{FRONTEND_URL}/backend/api/v1/telegram/webhook` — se salta solo
+  si `FRONTEND_URL` es `localhost` (Telegram exige HTTPS público) o si falta
+  `TELEGRAM_WEBHOOK_SECRET`. Como `FRONTEND_URL` hoy es la URL del túnel de Cloudflare (cambia
+  cada vez que se relanza `cloudflared`), esto es lo que mantiene el webhook sincronizado sin
+  tocarlo a mano — mismo patrón que ya usaba el enlace mágico de login.
+- `services/favorite_notifier.py`: si `usuario.telegram_chat_id` está vinculado, manda el aviso
+  de bajada por Telegram (`send_telegram_deal_alert`) en vez de email — sin link de "darse de
+  baja" (el `/stop` del bot hace ese papel).
+- Frontend: `User.telegram_linked` (de `GET /auth/me`), `TelegramLinkPanel.tsx` en
+  `/favoritos` — botón que pide el código, abre el deep-link, y hace polling a `getMe()` cada
+  3s (aparte de `useAuth().refresh()`, para no parpadear el header entero) hasta detectar la
+  vinculación o agotar ~2 min.
+- El proxy (`frontend-trendbuy/.../backend/[...path]/route.ts`) reenvía ahora también la
+  cabecera `x-telegram-bot-api-secret-token` — antes solo pasaba `cookie`, y sin esto el
+  webhook nunca habría visto el secreto y todo update habría dado 401.
+- **Probado en vivo**: migración aplicada limpia, `getWebhookInfo` confirma la URL del túnel,
+  401 correcto sin secreto/sin sesión, 24 tests de pytest existentes siguen en verde tras el
+  cambio de schema. **Pendiente de confirmar por el usuario**: el ciclo completo pulsando
+  "Vincular Telegram" en el navegador real y enviando `/start <code>` desde la app de Telegram.
 
 **Endurecimiento antes del PMV (esta sesión)**:
 - `services/rate_limit.py`: límite en `/api/v1/auth/request-login` (5/email/hora,
@@ -182,20 +214,21 @@ para repartir el trabajo sin pisarse.
 
 **Ahora mismo ocupado por la sesión "principal" (dominio/despliegue) — no tocar en paralelo:**
 - `docker-compose.yml`, `docker-compose.prod.yml`, `Caddyfile`, cualquier `.env*`.
-- `backend-trendbuy/services/auth.py`, `api/auth.py`, `services/favorite_notifier.py`,
-  `services/rate_limit.py` (login/favoritos, recién tocados, todavía sin probar en un
-  dominio real).
+- `backend-trendbuy/services/auth.py`, `api/auth.py`, `api/telegram.py`, `api/main.py`,
+  `services/notifier.py`, `services/favorite_notifier.py`, `services/rate_limit.py`
+  (login/favoritos/Telegram-por-usuario, recién tocados — ver sección 8, Telegram-por-usuario
+  probado contra el túnel pero pendiente de confirmación del usuario en el navegador real).
+- `frontend-trendbuy/src/lib/AppProviders.tsx`, `lib/api.ts`, `lib/types.ts`,
+  `components/TelegramLinkPanel.tsx`, `app/favoritos/page.tsx`,
+  `app/backend/[...path]/route.ts` (mismo motivo).
 
 **Libre para coger en paralelo sin conflicto, de más a menos autocontenido:**
 1. **App móvil** (`app-trendbuy/`, no existe todavía — ver sección 4). Carpeta nueva,
    cero solape de archivos con el resto. React Native/Expo recomendado. Debe consumir la
    misma API REST (`/api/v1/search`, `/api/v1/products/dashboard`, `/api/v1/auth/*`,
    `/api/v1/favorites`) — no dupliques lógica de ranking/rebaja en el cliente (regla 4).
-2. **Telegram por usuario** — diseño ya descrito en la conversación (webhook +
-   `t.me/tu_bot?start=<código>` para capturar el `chat_id` de cada usuario), pero
-   **bloqueado hasta que exista un dominio HTTPS real** (Telegram no acepta webhooks en
-   `localhost`/HTTP). Si el dominio ya está listo cuando se lea esto, es buen momento para
-   empezarlo — si no, esperar.
+2. ~~Telegram por usuario~~ **Hecho** (ver sección 8) — ya no es tarea libre, ver el bloque
+   de archivos ocupados arriba.
 3. **Más tests pytest**: hoy solo hay unitarios puros (`matching.py`, `scrapers.py`,
    `categories.py`, tokens de `auth.py`). Faltan tests de integración con BD (persistencia,
    `services/search.py`, `services/persistence.py`) usando `sqlite+aiosqlite` en memoria —
