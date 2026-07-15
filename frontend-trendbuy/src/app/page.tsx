@@ -39,8 +39,12 @@ export default async function Home() {
           Compra en el momento justo
         </h1>
         <p className="max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
-          Comparamos precios en Amazon, PcComponentes, MediaMarkt y Worten a la vez y te avisamos cuándo un precio
-          toca su mínimo histórico real, no una estimación.
+          Comparamos precios en más de diez tiendas a la vez — Amazon, PcComponentes, MediaMarkt, Worten, IKEA,
+          Decathlon, Druni y más — y te avisamos cuándo un precio toca su mínimo histórico real, no una estimación.
+        </p>
+        <p className="max-w-2xl text-xs text-zinc-400 dark:text-zinc-500">
+          Tecnología, ropa, hogar, belleza, deportes y libros: busca por palabra clave o pega la URL de un producto
+          para seguir su precio.
         </p>
       </section>
 

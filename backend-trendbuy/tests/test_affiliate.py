@@ -112,3 +112,42 @@ def test_none_url_passes_through(monkeypatch):
 def test_store_detection_falls_back_to_hint_for_relative_url(monkeypatch):
     mod = reload_with_env(monkeypatch, AFFILIATE_AMAZON_TAG="trendbuy-21")
     assert mod.tag_url("/dp/B0ABCDEFGH", "Amazon.es") == "/dp/B0ABCDEFGH?tag=trendbuy-21"
+
+
+def test_any_store_activates_via_generic_awin_env_var(monkeypatch):
+    # No code change needed to monetize a new store: any
+    # AFFILIATE_AWIN_MID_<STORE> env var registers <store> for detection.
+    mod = reload_with_env(monkeypatch, AFFILIATE_AWIN_PUBLISHER_ID="12345", AFFILIATE_AWIN_MID_DECATHLON="7777")
+    original = "https://www.decathlon.es/es/p/bicicleta-x/123.html"
+    tagged = mod.tag_url(original, "Decathlon")
+    assert tagged.startswith("https://www.awin1.com/cread.php?")
+    assert "awinmid=7777" in tagged
+
+
+def test_any_store_activates_via_generic_tradedoubler_env_var(monkeypatch):
+    mod = reload_with_env(
+        monkeypatch,
+        AFFILIATE_TRADEDOUBLER_SITE_ID="999",
+        AFFILIATE_TRADEDOUBLER_PID_CASADELLIBRO="4242",
+    )
+    tagged = mod.tag_url("https://www.casadellibro.com/libro-x/123", "Casa del Libro")
+    assert tagged.startswith("https://clk.tradedoubler.com/click?")
+    assert "p=4242" in tagged
+
+
+def test_multiword_store_hint_matches_hostname_style_key(monkeypatch):
+    # Display names carry spaces ("Casa del Libro"); env keys are
+    # hostname-style (casadellibro) - the hint fallback must bridge that.
+    mod = reload_with_env(
+        monkeypatch,
+        AFFILIATE_TRADEDOUBLER_SITE_ID="999",
+        AFFILIATE_TRADEDOUBLER_PID_CASADELLIBRO="4242",
+    )
+    tagged = mod.tag_url("/libro-x/123", "Casa del Libro")
+    assert tagged.startswith("https://clk.tradedoubler.com/click?")
+
+
+def test_unconfigured_generic_store_passes_through(monkeypatch):
+    mod = reload_with_env(monkeypatch, AFFILIATE_AWIN_PUBLISHER_ID="12345")
+    original = "https://www.decathlon.es/es/p/bicicleta-x/123.html"
+    assert mod.tag_url(original, "Decathlon") == original

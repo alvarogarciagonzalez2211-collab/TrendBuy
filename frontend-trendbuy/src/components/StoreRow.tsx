@@ -1,3 +1,6 @@
+"use client";
+
+import { reportOutboundClick } from "@/lib/api";
 import type { StoreOffer } from "@/lib/types";
 import { StoreBadge } from "./StoreBadge";
 
@@ -17,7 +20,10 @@ export function StoreRow({ offer, isCheapest }: { offer: StoreOffer; isCheapest:
           href={offer.url}
           target="_blank"
           rel="noopener noreferrer"
-          onClick={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            reportOutboundClick(offer.store, "search");
+          }}
           className="rounded-md bg-zinc-900 px-3 py-1 text-xs font-medium text-white transition hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
         >
           Comprar

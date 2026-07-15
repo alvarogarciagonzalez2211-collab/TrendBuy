@@ -10,6 +10,7 @@ import {
 } from "@/lib/filters";
 import type { SearchResponse } from "@/lib/types";
 import { FilterBar } from "./FilterBar";
+import { InterestChips } from "./InterestChips";
 import { NoFilterResults } from "./NoFilterResults";
 import { SearchResults } from "./SearchResults";
 import { SearchSkeleton } from "./SearchSkeleton";
@@ -92,7 +93,8 @@ export function SearchBar() {
       {status === "loading" && (
         <div className="flex flex-col gap-3">
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Buscando en Amazon, PcComponentes, MediaMarkt y Worten… puede tardar hasta 40 segundos.
+            Buscando en las tiendas de tu categoría (Amazon siempre, y las especializadas según lo que busques)…
+            puede tardar hasta 40 segundos.
           </p>
           <SearchSkeleton />
         </div>
@@ -111,6 +113,7 @@ export function SearchBar() {
 
       {status === "idle" && result && (
         <div className="flex flex-col gap-4">
+          {result.families.length > 0 && <InterestChips filters={filters} onChange={setFilters} />}
           {result.families.length > 0 && (
             <FilterBar
               filters={filters}

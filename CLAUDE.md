@@ -314,3 +314,78 @@ pegando una URL directa (todo pasa primero por búsqueda por palabra clave).
 si se está trabajando en ello en paralelo): `services/affiliate.py` (nuevo),
 `services/search.py`, `api/main.py`, `frontend-trendbuy/src/lib/api.ts`,
 `frontend-trendbuy/src/components/SearchBar.tsx`.
+
+## 11. Sesión 2026-07-15 (rama `claude/trendbuys-monetization-stores-v1yun5`) — monetización completa, más tiendas, filtro por interés
+
+**Bug corregido — "todo es mínimo histórico en la primera búsqueda":** la causa era que
+un producto recién scrapeado tiene un único punto de precio, así que su precio actual ES
+su mínimo trivialmente. Ahora `classify_best_moment` (predictor.py) devuelve
+`days_tracked` (días DISTINTOS con registros, no registros — un scrape de N tiendas es 1
+día) y `has_price_history` (≥2 días, `MIN_HISTORY_DAYS_FOR_LOW`); tanto
+`services/search.py::_family_payload` como el dashboard lo AND-ean en `is_historic_low`.
+El frontend muestra en su lugar un hint azul "Nuevo en seguimiento — histórico en
+construcción" (`TrackingSinceHint.tsx`). Verificado en vivo con BD sembrada (sqlite):
+producto de 1 día sin badge, producto de 5 días en mínimo con badge. Tests en
+`tests/test_predictor.py`.
+
+**Monetización (punto 1 del roadmap, ampliado):**
+- `services/affiliate.py` ahora es genérico: escanea TODAS las env
+  `AFFILIATE_AWIN_MID_<TIENDA>` / `AFFILIATE_TRADEDOUBLER_PID_<TIENDA>` al importar —
+  monetizar una tienda nueva es solo rellenar una variable (`<TIENDA>` = hostname sin
+  puntos: DECATHLON, CASADELLIBRO...). Defaults previos intactos (PcComponentes→Awin
+  20982). El hint de tienda quita espacios para casar "Casa del Libro"→casadellibro.
+- Métricas de clics salientes: `POST /api/v1/metrics/click` (beacon del frontend vía
+  `navigator.sendBeacon`, siempre 204, Redis hash por día+tienda, TTL 90 días, fallo de
+  Redis silencioso) y `GET /api/v1/metrics/clicks?days=` (protegido con header
+  `X-Admin-Key` == `SECRET_KEY`). `services/metrics.py`. Sin datos de usuario — solo
+  tienda+superficie+día, para decidir qué programa de afiliación priorizar.
+- Disclosure de afiliados en el footer (`SiteFooter.tsx`, requisito legal y de
+  confianza) — en todas las páginas.
+
+**Tiendas (de 4 → 11 en el registro):**
+- `scraper/scrapers.py::KNOWN_STORES` es ahora LA fuente única de tiendas conocidas
+  (marker de hostname → nombre visible). `services/search.py` deriva de ahí las URLs
+  soportadas por `/api/v1/track`.
+- **Scraper de detalle genérico `scrape_generic_product`** (JSON-LD schema.org Product →
+  microdata itemprop fallback; `extract_jsonld_product` es función pura con tests). Esto
+  arregla un hueco real: los enlaces de IKEA/Vinted/Druni que entraban por búsqueda NUNCA
+  se refrescaban en la tarea de 12h (scrape_store_url no los soportaba) — ahora cualquier
+  tienda del registro se refresca y se puede seguir por URL. OJO: los precios JSON-LD son
+  formato máquina ("659.99") — `parse_jsonld_price`, NO `parse_price` (es-ES).
+- Nuevas búsquedas por sección: **Decathlon + Sprinter** (deportes, Sprinter también en
+  ropa), **Primor** (belleza, junto a Druni), **Casa del Libro** (libros). Implementadas
+  con `StoreSearchConfig` + `search_store_by_config` (declarativo, cadenas de selectores
+  con fallback) — añadir la próxima tienda son ~10 líneas de config.
+- ⚠️ **Selectores de Decathlon/Sprinter/Primor/Casa del Libro SIN verificar en vivo**: el
+  entorno de esta sesión tenía bloqueada la salida de red a las tiendas (403 del proxy).
+  Fallan SUAVE (lista vacía, la búsqueda sigue con el resto). Primera sesión con red:
+  lanzar una búsqueda real por sección y ajustar selectores contra el DOM real, como se
+  hizo con las 4 originales. El scraper genérico de detalle NO depende de estos selectores.
+- Secciones nuevas en `STORE_SECTION_KEYWORDS`: `deportes`, `libros`.
+
+**Categorías y filtro por interés:**
+- `services/categories.py`: + Deportes, Libros, Juguetes (14 categorías).
+- Migración `0009`: siembra en `categorias` las que faltaban desde 0006 (Ropa, Hogar,
+  Belleza — existían en la taxonomía pero no se podían favoritar por tema) + las 3 nuevas.
+  Idempotente (solo inserta las ausentes). **Sin probar contra Postgres real en esta
+  sesión** (no había BD) — sintaxis estándar, revisar en el primer `alembic upgrade head`.
+- Frontend: chips de interés (`InterestChips.tsx` + `INTERESTS` en `lib/filters.ts`):
+  Todo / Tecnología / Ropa y moda / Hogar / Belleza / Deportes / Libros y ocio. Un tap
+  filtra dashboard y resultados de búsqueda (agrupa categorías del backend, no recalcula
+  nada — regla 4). Integrado en `FilterableDeals` y `SearchBar`.
+
+**Frontend además:** sparkline SVG del mínimo diario en las cards (`Sparkline.tsx`,
+datos nuevos `history_spark`/`days_tracked` en dashboard y search — el dashboard ya
+cargaba el historial por producto, coste cero), hero actualizado a "más de diez tiendas",
+mensaje de búsqueda que explica que las tiendas dependen de la categoría. Probado en vivo
+(build standalone + backend sqlite sembrado + Playwright): chips filtran bien, sparkline y
+hint renderizan, `next build` limpio.
+
+**También:** arreglado test flaky `test_unsubscribe_token_tampered_signature_rejected`
+(~1/16 runs el "tamper" reproducía la firma original). Suite: 76 tests en verde.
+
+**Pendiente que quedó de aquí:**
+- Verificar en vivo los 4 scrapers nuevos (arriba) y qué red de afiliación usan
+  Decathlon/Sprinter/Primor/Casa del Libro antes de rellenar sus variables.
+- `alembic upgrade head` contra Postgres real (migración 0009).
+- El plan Pro (punto 3 del roadmap) sigue bloqueado por decisión de pasarela de pago.

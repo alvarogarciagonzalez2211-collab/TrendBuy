@@ -7,8 +7,10 @@ import { FavoriteButton } from "./FavoriteButton";
 import { HistoricLowBadge } from "./HistoricLowBadge";
 import { ProductAnalysisPanel } from "./ProductAnalysisPanel";
 import { ProductImage } from "./ProductImage";
+import { Sparkline } from "./Sparkline";
 import { StatusBadge } from "./StatusBadge";
 import { StoreRow } from "./StoreRow";
+import { TrackingSinceHint } from "./TrackingSinceHint";
 
 export function ProductFamilyCard({ family }: { family: ProductFamily }) {
   const { expanded, status, analysis, toggle } = useProductAnalysis(family.product_id);
@@ -55,9 +57,17 @@ export function ProductFamilyCard({ family }: { family: ProductFamily }) {
               </div>
             )}
 
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-zinc-400 dark:text-zinc-500">
-              {expanded ? "▲" : "▼"} Ver histórico de precios
-            </span>
+            <TrackingSinceHint daysTracked={family.days_tracked ?? 0} />
+
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-zinc-400 dark:text-zinc-500">
+                {expanded ? "▲" : "▼"} Ver histórico de precios
+              </span>
+              <Sparkline
+                values={family.history_spark ?? []}
+                label={`Evolución del precio (${family.days_tracked} días)`}
+              />
+            </div>
           </div>
         </div>
       </button>

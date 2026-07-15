@@ -17,6 +17,11 @@ export type ProductFamily = {
   discount_percent: string;
   categories: string[];
   image_url: string | null;
+  // Distinct days with recorded prices - 0/1 means "just discovered", so a
+  // historic-low claim would be meaningless (backend already suppresses it).
+  days_tracked: number;
+  // Daily cheapest price, oldest→newest, for the card sparkline.
+  history_spark: number[];
   stores: StoreOffer[];
 };
 
@@ -40,6 +45,8 @@ export type DashboardProduct = {
   discount_percent: string;
   categories: string[];
   image_url: string | null;
+  days_tracked: number;
+  history_spark: number[];
   tracked_links: number;
 };
 

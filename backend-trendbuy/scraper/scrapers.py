@@ -1,9 +1,11 @@
 import asyncio
+import json
 import re
 import unicodedata
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlsplit
 
 from playwright.async_api import Browser, Page, TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
@@ -291,6 +293,159 @@ async def scrape_worten(browser: Browser, url: str) -> dict[str, Any]:
             result["price"] = parse_price(raw_price)
         except Exception:
             result["price"] = None
+    except Exception as exc:
+        result["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        await context.close()
+
+    return result
+
+
+def parse_jsonld_price(raw: Any) -> Decimal | None:
+    # JSON-LD prices use machine formatting ("659.99", 659.99), NOT the es-ES
+    # human formatting parse_price() handles - '.' is the decimal separator
+    # here, so parse_price would misread "1439.00" as 143900.
+    if raw is None:
+        return None
+
+    if isinstance(raw, (int, float)):
+        raw = str(raw)
+
+    if not isinstance(raw, str):
+        return None
+
+    cleaned = raw.replace("\xa0", " ").strip().replace("€", "").replace("EUR", "").strip()
+    # Tolerate a stray es-ES-formatted value (comma decimals) some stores put
+    # in their JSON-LD anyway: a comma after the last dot must be the decimal.
+    if "," in cleaned and cleaned.rfind(",") > cleaned.rfind("."):
+        cleaned = cleaned.replace(".", "").replace(",", ".")
+    else:
+        cleaned = cleaned.replace(",", "")
+
+    try:
+        price = Decimal(cleaned).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except InvalidOperation:
+        return None
+
+    return price if price > 0 else None
+
+
+def _iter_jsonld_nodes(node: Any):
+    if isinstance(node, list):
+        for item in node:
+            yield from _iter_jsonld_nodes(item)
+    elif isinstance(node, dict):
+        yield node
+        # @graph is how many storefronts (Magento, WooCommerce...) nest the
+        # Product next to Organization/BreadcrumbList in a single script tag.
+        yield from _iter_jsonld_nodes(node.get("@graph"))
+
+
+def _offer_price(offers: Any) -> Decimal | None:
+    prices = []
+    for offer in offers if isinstance(offers, list) else [offers]:
+        if not isinstance(offer, dict):
+            continue
+        # AggregateOffer carries lowPrice; a plain Offer carries price. Some
+        # stores also nest priceSpecification - covered by the price key
+        # fallback chain here.
+        for key in ("lowPrice", "price"):
+            price = parse_jsonld_price(offer.get(key))
+            if price is not None:
+                prices.append(price)
+                break
+        else:
+            spec = offer.get("priceSpecification")
+            if isinstance(spec, dict):
+                price = parse_jsonld_price(spec.get("price"))
+                if price is not None:
+                    prices.append(price)
+    return min(prices) if prices else None
+
+
+def extract_jsonld_product(payloads: list[str]) -> dict[str, Any] | None:
+    # Pure function (unit-tested, no Playwright) that turns the raw contents
+    # of a page's <script type="application/ld+json"> tags into {name, price}.
+    # schema.org Product markup is the closest thing e-commerce has to a
+    # universal API: one extractor covers product pages on most stores without
+    # per-store selectors that rot.
+    for payload in payloads:
+        try:
+            data = json.loads(payload)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        for node in _iter_jsonld_nodes(data):
+            node_type = node.get("@type")
+            types = node_type if isinstance(node_type, list) else [node_type]
+            if not any(isinstance(t, str) and t.lower() == "product" for t in types):
+                continue
+
+            price = _offer_price(node.get("offers"))
+            if price is None:
+                continue
+
+            name = node.get("name")
+            image = node.get("image")
+            if isinstance(image, list):
+                image = image[0] if image else None
+            if isinstance(image, dict):
+                image = image.get("url")
+
+            return {
+                "name": " ".join(str(name).split()) if name else None,
+                "price": price,
+                "image_url": image if isinstance(image, str) else None,
+            }
+
+    return None
+
+
+async def scrape_generic_product(browser: Browser, url: str, store: str | None = None) -> dict[str, Any]:
+    # Detail scraper for every store WITHOUT a hand-tuned scrape_* above -
+    # this is what lets the 12h Celery refresh and "seguir por URL" work for
+    # any store the keyword search can discover, instead of only the original
+    # four. Strategy: JSON-LD first (near-universal), schema.org microdata
+    # (itemprop) second, visible-text price parsing deliberately NOT attempted
+    # (too error-prone without per-store verification).
+    display_store = store or store_display_name_for_url(url)
+    result: dict[str, Any] = {
+        "store": display_store,
+        "name": None,
+        "price": None,
+        "url": url,
+        "error": None,
+    }
+
+    context = await new_stealth_context(browser)
+    page = await context.new_page()
+
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_MS)
+        # JSON-LD scripts are injected by the server or early hydration; give
+        # client-rendered pages one short beat to attach them.
+        await page.wait_for_timeout(1_000)
+
+        payloads = await page.locator("script[type='application/ld+json']").all_inner_texts()
+        product = extract_jsonld_product(payloads)
+
+        if product is not None:
+            result["name"] = product["name"]
+            result["price"] = product["price"]
+        else:
+            try:
+                raw_price = await page.locator("[itemprop='price']").first.get_attribute(
+                    "content", timeout=CARD_TIMEOUT_MS
+                )
+                result["price"] = parse_jsonld_price(raw_price)
+            except Exception:
+                result["price"] = None
+
+            if result["price"] is not None:
+                result["name"] = await first_visible_text(page, ["h1"], timeout=CARD_TIMEOUT_MS)
+
+        if result["price"] is None:
+            result["error"] = "No structured price data (JSON-LD/microdata) found on page"
     except Exception as exc:
         result["error"] = f"{type(exc).__name__}: {exc}"
     finally:
@@ -829,6 +984,168 @@ async def search_druni(browser: Browser, keyword: str) -> list[dict[str, Any]]:
         await context.close()
 
 
+@dataclass
+class StoreSearchConfig:
+    # Declarative recipe for the long tail of stores: the four hand-written
+    # search_* functions above earned their special-casing through live
+    # debugging; every store after them shares the same shape (grid of cards,
+    # name/price/link inside each card) and only differs in selectors. Each
+    # selector field is a fallback chain - first match wins - so a store
+    # redesign degrades gracefully instead of instantly breaking.
+    store: str
+    search_url: str  # str.format with {query}
+    card_selectors: list[str]
+    name_selectors: list[str]
+    price_selectors: list[str]
+    link_selectors: list[str] = field(default_factory=lambda: ["a"])
+
+
+async def _first_inner_text(card, selectors: list[str]) -> str | None:
+    for selector in selectors:
+        try:
+            text = await card.locator(selector).first.inner_text(timeout=CARD_TIMEOUT_MS)
+            text = " ".join(text.split())
+            if text:
+                return text
+        except Exception:
+            continue
+    return None
+
+
+async def _first_href(card, selectors: list[str]) -> str | None:
+    for selector in selectors:
+        try:
+            href = await card.locator(selector).first.get_attribute("href", timeout=CARD_TIMEOUT_MS)
+            if href:
+                return href
+        except Exception:
+            continue
+    return None
+
+
+async def search_store_by_config(browser: Browser, keyword: str, config: StoreSearchConfig) -> list[dict[str, Any]]:
+    context = await new_stealth_context(browser)
+    page = await context.new_page()
+
+    try:
+        url = config.search_url.format(query=quote(keyword))
+        await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_MS)
+
+        cards = None
+        for card_selector in config.card_selectors:
+            candidate = page.locator(card_selector)
+            try:
+                await candidate.first.wait_for(state="attached", timeout=TIMEOUT_MS)
+                cards = candidate
+                break
+            except Exception:
+                continue
+        if cards is None:
+            return []
+
+        count = min(await cards.count(), SEARCH_RESULT_LIMIT)
+        items: list[dict[str, Any]] = []
+
+        for index in range(count):
+            card = cards.nth(index)
+
+            name = await _first_inner_text(card, config.name_selectors)
+            if not name:
+                continue
+
+            price_text = await _first_inner_text(card, config.price_selectors)
+            price = cheapest_price_in(price_text)
+
+            href = await _first_href(card, config.link_selectors)
+            product_url = urljoin(url, href) if href else None
+
+            try:
+                raw_image = await card.locator("img").first.get_attribute("src", timeout=CARD_TIMEOUT_MS)
+            except Exception:
+                raw_image = None
+            image_url = urljoin(url, raw_image) if raw_image else None
+
+            if price is None or not product_url:
+                continue
+
+            items.append(
+                {
+                    "store": config.store,
+                    "name": name,
+                    "price": price,
+                    "url": product_url,
+                    "image_url": image_url,
+                    "error": None,
+                }
+            )
+
+        return items
+    except Exception:
+        return []
+    finally:
+        await context.close()
+
+
+# ⚠️ NOT yet verified against live pages (this dev environment has no outbound
+# network access to the stores - 2026-07-15). Selectors are best-effort from
+# each platform's known storefront (Decathlon's design system, Salesforce
+# Commerce Cloud for Sprinter, Magento for Primor). Every one of them fails
+# SOFT (empty result list, search continues with the other stores), and the
+# generic JSON-LD detail scraper - which does not depend on these selectors -
+# still covers their product pages for URL-tracking and refreshes. To verify:
+# run a live search per store and check items come back with sane prices;
+# fix selectors against the real DOM if not (same process used for the
+# original four, see CLAUDE.md).
+DECATHLON_SEARCH = StoreSearchConfig(
+    store="Decathlon",
+    search_url="https://www.decathlon.es/es/search?Ntt={query}",
+    card_selectors=["[data-testid='product-card']", "article[class*='product']", "div.dpb-holder"],
+    name_selectors=["[data-testid='product-card-title']", "h2", "[class*='title']"],
+    price_selectors=["[data-testid='price']", "[class*='price']"],
+)
+
+SPRINTER_SEARCH = StoreSearchConfig(
+    store="Sprinter",
+    search_url="https://www.sprintersports.com/buscador?q={query}",
+    card_selectors=["div.product-tile", "div.product", "[class*='product-card']"],
+    name_selectors=["a.link", ".pdp-link", "[class*='name']", "h2", "h3"],
+    price_selectors=[".price .sales .value", ".price", "[class*='price']"],
+)
+
+PRIMOR_SEARCH = StoreSearchConfig(
+    store="Primor",
+    search_url="https://www.primor.eu/es_es/catalogsearch/result/?q={query}",
+    card_selectors=["li.item.product.product-item", "li.product-item", "[class*='product-item']"],
+    name_selectors=["a.product-item-link", ".product-item-name", "h2", "h3"],
+    price_selectors=[".price-box", "[class*='price']"],
+    link_selectors=["a.product-item-link", "a"],
+)
+
+CASADELLIBRO_SEARCH = StoreSearchConfig(
+    store="Casa del Libro",
+    search_url="https://www.casadellibro.com/busqueda-generica?busqueda={query}",
+    card_selectors=["[class*='compact-product']", "[class*='product-card']", "article"],
+    name_selectors=["h2", "h3", "[class*='title']"],
+    price_selectors=["[class*='price']"],
+)
+
+
+async def search_decathlon(browser: Browser, keyword: str) -> list[dict[str, Any]]:
+    return await search_store_by_config(browser, keyword, DECATHLON_SEARCH)
+
+
+async def search_sprinter(browser: Browser, keyword: str) -> list[dict[str, Any]]:
+    return await search_store_by_config(browser, keyword, SPRINTER_SEARCH)
+
+
+async def search_primor(browser: Browser, keyword: str) -> list[dict[str, Any]]:
+    return await search_store_by_config(browser, keyword, PRIMOR_SEARCH)
+
+
+async def search_casadellibro(browser: Browser, keyword: str) -> list[dict[str, Any]]:
+    return await search_store_by_config(browser, keyword, CASADELLIBRO_SEARCH)
+
+
 # Coarse routing taxonomy, deliberately separate from services.categories'
 # CATEGORY_KEYWORDS: that one is fine-grained (8 categories) for tagging
 # already-found products for favorites; this one only has to decide, before
@@ -852,6 +1169,16 @@ STORE_SECTION_KEYWORDS: dict[str, list[str]] = {
         "protector solar", "colonia", "mascarilla facial", "labial", "gel de ducha",
         "belleza",
     ],
+    "deportes": [
+        "bicicleta", "mancuerna", "cinta de correr", "raqueta", "balon", "futbol",
+        "padel", "esqui", "camping", "tienda de campana", "patinete", "deporte",
+        "fitness", "yoga", "gimnasio", "running", "senderismo", "montana", "surf",
+        "natacion", "esterilla", "mochila",
+    ],
+    "libros": [
+        "libro", "novela", "comic", "manga", "cuento", "trilogia", "saga",
+        "bestseller", "libreria",
+    ],
 }
 
 # Amazon is a broad marketplace relevant to every section, so it always runs.
@@ -861,10 +1188,13 @@ STORE_SECTION_KEYWORDS: dict[str, list[str]] = {
 ALWAYS_SCRAPERS = [search_amazon]
 TECH_ONLY_SCRAPERS = [search_pccomponentes, search_mediamarkt, search_worten]
 SECTION_SCRAPERS = {
-    "ropa": [search_vinted],
+    # Sprinter covers sportswear/sneakers, a big share of real "ropa" queries.
+    "ropa": [search_vinted, search_sprinter],
     # MediaMarkt/Worten already sell home appliances, on top of IKEA for furniture.
     "hogar": [search_ikea, search_mediamarkt, search_worten],
-    "belleza": [search_druni],
+    "belleza": [search_druni, search_primor],
+    "deportes": [search_decathlon, search_sprinter],
+    "libros": [search_casadellibro],
 }
 
 
@@ -935,6 +1265,34 @@ async def scrape_comparison(
             await browser.close()
 
 
+# Single source of truth for "which stores does TrendBuy know" - keyed by the
+# distinctive hostname fragment, valued with the display name used everywhere
+# a store is shown to a user. services/search.py derives its supported-URL
+# check from this, so adding a store here automatically enables track-by-URL
+# for it (detail scraping falls back to scrape_generic_product below).
+KNOWN_STORES: dict[str, str] = {
+    "amazon": "Amazon Espana",
+    "pccomponentes": "PcComponentes",
+    "mediamarkt": "MediaMarkt",
+    "worten": "Worten",
+    "ikea": "IKEA",
+    "vinted": "Vinted",
+    "druni": "Druni",
+    "decathlon": "Decathlon",
+    "sprinter": "Sprinter",
+    "primor": "Primor",
+    "casadellibro": "Casa del Libro",
+}
+
+
+def store_display_name_for_url(url: str) -> str:
+    host = urlsplit(url).netloc.lower()
+    for marker, display_name in KNOWN_STORES.items():
+        if marker in host:
+            return display_name
+    return host or "unknown"
+
+
 async def scrape_store_url(store: str, url: str) -> dict[str, Any]:
     store_key = f"{store} {url}".lower()
 
@@ -954,13 +1312,12 @@ async def scrape_store_url(store: str, url: str) -> dict[str, Any]:
             if "worten" in store_key:
                 return await scrape_worten(browser, url)
 
-            return {
-                "store": store or "unknown",
-                "name": None,
-                "price": None,
-                "url": url,
-                "error": f"Unsupported store: {store}",
-            }
+            # Everything else (IKEA/Vinted/Druni/Decathlon/... and whatever
+            # comes next) goes through structured-data extraction - this is
+            # what keeps the 12h price refresh working for stores that only
+            # have a search scraper, instead of their history silently never
+            # growing past the first data point.
+            return await scrape_generic_product(browser, url, store or None)
         finally:
             await browser.close()
 

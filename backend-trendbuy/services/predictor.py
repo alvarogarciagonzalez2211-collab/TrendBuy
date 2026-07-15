@@ -12,6 +12,13 @@ from models.database import EnlaceTienda, HistorialPrecio, Producto
 
 MIN_FORECAST_POINTS = 3
 
+# A product scraped for the first time has exactly one price point, so its
+# current price IS its historic minimum trivially - every fresh search used to
+# light up the "mínimo histórico" badge on all results. Requiring price records
+# on at least this many DISTINCT days keeps the badge meaningful: it can only
+# appear once there is a real history to be the minimum OF.
+MIN_HISTORY_DAYS_FOR_LOW = 2
+
 
 def decimal_to_money(value: float | int | Decimal | None) -> str | None:
     if value is None:
@@ -98,6 +105,10 @@ def classify_best_moment(history: pd.DataFrame) -> dict[str, Any]:
             "message": "El historial no contiene precios validos.",
         }
 
+    # Days (not raw records) with at least one valid price - a single scrape
+    # of N stores writes N records but still only proves one day of history.
+    distinct_days = int(pd.to_datetime(history.loc[prices.index, "fecha"]).dt.normalize().nunique())
+
     current_price = Decimal(str(prices.iloc[-1]))
     percentile_25 = Decimal(str(prices.quantile(0.25)))
     historic_min = Decimal(str(prices.min()))
@@ -116,7 +127,29 @@ def classify_best_moment(history: pd.DataFrame) -> dict[str, Any]:
         "percentile_25": decimal_to_money(percentile_25),
         "historic_min": decimal_to_money(historic_min),
         "records": int(len(prices)),
+        "days_tracked": distinct_days,
+        # Callers deciding whether to show a historic-low badge must AND this
+        # in - see MIN_HISTORY_DAYS_FOR_LOW above for why one day never counts.
+        "has_price_history": distinct_days >= MIN_HISTORY_DAYS_FOR_LOW,
     }
+
+
+def history_sparkline(history: pd.DataFrame, points: int = 30) -> list[float]:
+    # Tiny inline trend for product cards: one value per tracked day (the
+    # day's cheapest price across stores), most recent `points` days. Floats,
+    # not money strings - this feeds an SVG polyline, never a price label, so
+    # Decimal-grade precision buys nothing here.
+    if history.empty:
+        return []
+
+    frame = history[["fecha", "precio"]].copy()
+    frame["precio"] = pd.to_numeric(frame["precio"], errors="coerce")
+    frame = frame.dropna(subset=["precio"])
+    if frame.empty:
+        return []
+
+    daily_min = frame.groupby(pd.to_datetime(frame["fecha"]).dt.normalize())["precio"].min().sort_index()
+    return [float(value) for value in daily_min.tail(points)]
 
 
 def build_prophet_frame(history: pd.DataFrame) -> pd.DataFrame:

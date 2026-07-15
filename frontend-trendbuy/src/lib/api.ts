@@ -90,6 +90,26 @@ export async function getProductAnalysis(productId: number): Promise<ProductAnal
   }
 }
 
+// Outbound-click beacon: fires while the browser is already navigating away
+// to the store, so it must never block or fail loudly - sendBeacon is built
+// for exactly this, with keepalive-fetch as the fallback. Best-effort only.
+export function reportOutboundClick(store: string, source: "dashboard" | "search" | "alert" | "web"): void {
+  const body = JSON.stringify({ store, source });
+  try {
+    if (navigator.sendBeacon?.("/backend/api/v1/metrics/click", new Blob([body], { type: "application/json" }))) {
+      return;
+    }
+    void fetch("/backend/api/v1/metrics/click", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      keepalive: true,
+    }).catch(() => undefined);
+  } catch {
+    // Metrics must never interfere with the user's click-out.
+  }
+}
+
 // --- Auth ---------------------------------------------------------------
 // All client-only, through the /backend proxy - same-origin, so the session
 // cookie rides along automatically with no extra config on these calls.
