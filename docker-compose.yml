@@ -89,6 +89,37 @@ services:
     networks:
       - trendbuy_net
 
+  # Daily pg_dump to a separate named volume, with a 14-day retention sweep.
+  # This is a floor, not a full backup strategy - it lives on the same host
+  # as the database it's backing up, so it protects against "oops, bad
+  # migration / accidental DELETE", not against losing the whole machine.
+  # For real disaster recovery, also copy trendbuy_backups off-host
+  # (rsync/rclone to another machine or object storage) on some cadence.
+  #
+  # Restore: docker compose exec -T db psql -U trendbuy -d trendbuy < dump.sql
+  # (gunzip the .sql.gz first, and the target DB should be empty/fresh).
+  db_backup:
+    image: postgres:16-alpine
+    environment:
+      PGPASSWORD: trendbuy
+    volumes:
+      - trendbuy_backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - trendbuy_net
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          FILENAME="/backups/trendbuy_$$(date +%Y%m%d_%H%M%S).sql.gz"
+          echo "[db_backup] Dumping to $$FILENAME"
+          pg_dump -h db -U trendbuy -d trendbuy | gzip > "$$FILENAME"
+          find /backups -name 'trendbuy_*.sql.gz' -mtime +14 -delete
+          sleep 86400
+        done
+
   frontend:
     build:
       context: ./frontend-trendbuy
@@ -108,6 +139,7 @@ services:
 volumes:
   trendbuy_postgres_data:
   trendbuy_redis_data:
+  trendbuy_backups:
 
 networks:
   trendbuy_net:

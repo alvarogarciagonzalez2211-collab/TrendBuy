@@ -1,3 +1,6 @@
+import hashlib
+import hmac
+import logging
 import os
 import secrets
 from datetime import datetime, timedelta
@@ -7,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.database import Sesion, TokenAcceso, Usuario
 
+
+logger = logging.getLogger(__name__)
 
 LOGIN_TOKEN_TTL_MINUTES = 15
 SESSION_TTL_DAYS = 30
@@ -19,6 +24,16 @@ SESSION_COOKIE_NAME = "trendbuy_session"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+_SECRET_KEY = os.getenv("SECRET_KEY")
+if not _SECRET_KEY:
+    # Falls back to a random key generated once per process so unsubscribe
+    # tokens still work within a single run - but every restart invalidates
+    # every link already sent, so production MUST set SECRET_KEY explicitly
+    # in .env (any long random string, e.g. `python -c "import secrets;
+    # print(secrets.token_hex(32))"`).
+    logger.warning("SECRET_KEY not set - using an ephemeral key, unsubscribe links won't survive a restart.")
+    _SECRET_KEY = secrets.token_hex(32)
 
 
 def generate_token() -> str:
@@ -96,3 +111,27 @@ async def delete_session(session: AsyncSession, token: str) -> None:
     if sesion is not None:
         await session.delete(sesion)
         await session.commit()
+
+
+def generate_unsubscribe_token(usuario_id: int) -> str:
+    # Stateless (no DB column/lookup needed): HMAC-signed user id, so the
+    # link in every deal-alert email stays valid indefinitely without being
+    # single-use like the login token above - unsubscribing is idempotent
+    # and low-stakes, it doesn't need that same replay protection.
+    user_id_str = str(usuario_id)
+    signature = hmac.new(_SECRET_KEY.encode(), user_id_str.encode(), hashlib.sha256).hexdigest()
+    return f"{user_id_str}.{signature}"
+
+
+def verify_unsubscribe_token(token: str) -> int | None:
+    try:
+        user_id_str, signature = token.split(".", 1)
+        user_id = int(user_id_str)
+    except (ValueError, AttributeError):
+        return None
+
+    expected = hmac.new(_SECRET_KEY.encode(), user_id_str.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        return None
+
+    return user_id

@@ -20,6 +20,26 @@ def decimal_to_money(value: float | int | Decimal | None) -> str | None:
     return str(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
+def compute_discount_percent(previous_price: Decimal | None, current_price: Decimal) -> Decimal:
+    if previous_price is None or previous_price <= 0:
+        return Decimal("0.00")
+
+    return ((previous_price - current_price) / previous_price * Decimal("100")).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+
+async def recent_link_prices(session: AsyncSession, enlace_id: int, limit: int = 2) -> list[Decimal]:
+    query = (
+        select(HistorialPrecio.precio)
+        .where(HistorialPrecio.enlace_id == enlace_id)
+        .where(HistorialPrecio.precio.is_not(None))
+        .order_by(HistorialPrecio.fecha.desc())
+        .limit(limit)
+    )
+    return list((await session.execute(query)).scalars().all())
+
+
 async def load_product_price_history(session: AsyncSession, product_id: int) -> pd.DataFrame:
     query = (
         select(

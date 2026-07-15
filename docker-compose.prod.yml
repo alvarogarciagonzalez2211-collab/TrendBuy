@@ -1,0 +1,48 @@
+# Production overlay - use together with docker-compose.yml, not alone.
+#
+# Only Caddy is exposed to the internet (80/443, fully automatic HTTPS via
+# Let's Encrypt as soon as DOMAIN's DNS A/AAAA record points at this host).
+# Every other service drops its host port publish here and stays reachable
+# only over the internal trendbuy_net - same services as local dev, just
+# without the direct :3000/:8000/:5432/:6379 exposure to the world.
+#
+# Before running this, in backend-trendbuy/.env set:
+#   FRONTEND_URL=https://yourdomain.com
+#   COOKIE_SECURE=true
+#   SECRET_KEY=<a long random string - `python -c "import secrets; print(secrets.token_hex(32))"`>
+#
+# Then:
+#   DOMAIN=yourdomain.com docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+
+services:
+  db:
+    ports: []
+
+  redis:
+    ports: []
+
+  api:
+    ports: []
+
+  frontend:
+    ports: []
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - trendbuy_caddy_data:/data
+      - trendbuy_caddy_config:/config
+    depends_on:
+      - frontend
+    networks:
+      - trendbuy_net
+
+volumes:
+  trendbuy_caddy_data:
+  trendbuy_caddy_config:

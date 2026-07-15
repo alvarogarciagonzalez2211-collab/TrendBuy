@@ -15,6 +15,7 @@ export type ProductFamily = {
   is_historic_low: boolean;
   best_status: string;
   discount_percent: string;
+  categories: string[];
   image_url: string | null;
   stores: StoreOffer[];
 };
@@ -36,6 +37,8 @@ export type DashboardProduct = {
   currency: string;
   status: string;
   is_historic_low: boolean;
+  discount_percent: string;
+  categories: string[];
   image_url: string | null;
   tracked_links: number;
 };

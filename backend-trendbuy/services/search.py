@@ -9,12 +9,19 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.database import Busqueda, EnlaceTienda, HistorialPrecio, Producto
+from models.database import Busqueda, EnlaceTienda, Producto
 from scraper.scrapers import scrape_search_all
+from services.categories import match_categories
 from services.favorite_notifier import notify_matching_favorites
 from services.matching import group_by_family
 from services.persistence import LinkUpdate, persist_family
-from services.predictor import classify_best_moment, decimal_to_money, load_product_price_history
+from services.predictor import (
+    classify_best_moment,
+    compute_discount_percent,
+    decimal_to_money,
+    load_product_price_history,
+    recent_link_prices,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -42,13 +49,6 @@ def _cache_key(keyword: str) -> str:
 
 def _normalize_keyword(keyword: str) -> str:
     return keyword.strip().lower()
-
-
-def _discount_percent(previous_price: Decimal | None, current_price: Decimal) -> Decimal:
-    if previous_price is None or previous_price <= 0:
-        return Decimal("0.00")
-
-    return ((previous_price - current_price) / previous_price * Decimal("100")).quantize(Decimal("0.01"))
 
 
 def _cheapest_update(updates: list[LinkUpdate]) -> LinkUpdate:
@@ -89,6 +89,7 @@ async def _family_payload(
         "is_historic_low": is_historic_low,
         "best_status": best_moment.get("status"),
         "discount_percent": str(discount_percent),
+        "categories": match_categories(producto.nombre),
         "image_url": image_url,
         "stores": stores,
     }
@@ -113,17 +114,6 @@ async def _touch_busqueda(session: AsyncSession, keyword_norm: str) -> None:
         busqueda.ultima_busqueda = now
 
 
-async def _recent_prices(session: AsyncSession, enlace_id: int, limit: int = 2) -> list[Decimal]:
-    query = (
-        select(HistorialPrecio.precio)
-        .where(HistorialPrecio.enlace_id == enlace_id)
-        .where(HistorialPrecio.precio.is_not(None))
-        .order_by(HistorialPrecio.fecha.desc())
-        .limit(limit)
-    )
-    return list((await session.execute(query)).scalars().all())
-
-
 async def _rebuild_from_db(session: AsyncSession, keyword: str) -> list[dict[str, Any]]:
     # Already scraped this exact keyword today (see _was_searched_today) - the
     # stores themselves won't have moved since then, so this rebuilds the same
@@ -143,8 +133,8 @@ async def _rebuild_from_db(session: AsyncSession, keyword: str) -> list[dict[str
 
         entries = [(enlace.tienda or "unknown", enlace.precio_actual, enlace.url, enlace.imagen_url) for enlace in enlaces]
         cheapest = min(enlaces, key=lambda enlace: enlace.precio_actual)
-        recent = await _recent_prices(session, cheapest.id)
-        discount_percent = _discount_percent(recent[1], recent[0]) if len(recent) >= 2 else Decimal("0.00")
+        recent = await recent_link_prices(session, cheapest.id)
+        discount_percent = compute_discount_percent(recent[1], recent[0]) if len(recent) >= 2 else Decimal("0.00")
 
         payloads.append(await _family_payload(session, producto, entries, discount_percent))
 
@@ -183,7 +173,7 @@ async def search_products(session: AsyncSession, keyword: str) -> dict[str, Any]
                 continue
 
             cheapest = _cheapest_update(updates)
-            discount_percent = _discount_percent(cheapest.previous_price, cheapest.current_price)
+            discount_percent = compute_discount_percent(cheapest.previous_price, cheapest.current_price)
 
             # A price drop detected live (as opposed to via the scheduled
             # 12h refresh in services/tasks.py) should still reach anyone who

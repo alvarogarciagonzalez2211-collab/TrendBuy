@@ -1,13 +1,27 @@
+import { useState } from "react";
 import type { ProductAnalysis } from "@/lib/types";
 import { PriceHistoryChart } from "./PriceHistoryChart";
+
+// Extra raw fields only a technically-minded shopper cares about (EAN, how
+// many stores/links feed this product's history, its internal id) - kept
+// behind an opt-in toggle so the default view stays approachable.
+export type TechnicalDetails = {
+  productId: number;
+  ean?: string | null;
+  trackedLinks?: number;
+};
 
 export function ProductAnalysisPanel({
   status,
   analysis,
+  technical,
 }: {
   status: "idle" | "loading" | "error";
   analysis: ProductAnalysis | null;
+  technical?: TechnicalDetails;
 }) {
+  const [showTechnical, setShowTechnical] = useState(false);
+
   if (status === "loading") {
     return <p className="text-sm text-zinc-500 dark:text-zinc-400">Cargando histórico de precios…</p>;
   }
@@ -49,6 +63,46 @@ export function ProductAnalysisPanel({
 
       {analysis.warnings.length > 0 && (
         <p className="text-xs text-zinc-400 dark:text-zinc-500">{analysis.warnings.join(" ")}</p>
+      )}
+
+      {technical && (
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setShowTechnical((value) => !value);
+            }}
+            className="self-start text-xs font-medium text-zinc-400 underline-offset-2 hover:underline dark:text-zinc-500"
+          >
+            {showTechnical ? "Ocultar" : "Ver"} detalles técnicos
+          </button>
+
+          {showTechnical && (
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg bg-zinc-50 p-3 font-mono text-[11px] text-zinc-500 sm:grid-cols-3 dark:bg-zinc-800/60 dark:text-zinc-400">
+              <div>
+                <dt className="text-zinc-400 dark:text-zinc-500">product_id</dt>
+                <dd className="text-zinc-700 dark:text-zinc-300">{technical.productId}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-400 dark:text-zinc-500">EAN</dt>
+                <dd className="text-zinc-700 dark:text-zinc-300">{technical.ean ?? "—"}</dd>
+              </div>
+              {technical.trackedLinks !== undefined && (
+                <div>
+                  <dt className="text-zinc-400 dark:text-zinc-500">enlaces rastreados</dt>
+                  <dd className="text-zinc-700 dark:text-zinc-300">{technical.trackedLinks}</dd>
+                </div>
+              )}
+              <div>
+                <dt className="text-zinc-400 dark:text-zinc-500">precio actual</dt>
+                <dd className="text-zinc-700 dark:text-zinc-300">
+                  {bestMoment.current_price ? `${bestMoment.current_price} €` : "—"}
+                </dd>
+              </div>
+            </dl>
+          )}
+        </div>
       )}
     </div>
   );

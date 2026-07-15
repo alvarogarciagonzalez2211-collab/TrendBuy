@@ -1,9 +1,18 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { searchProducts } from "@/lib/api";
+import {
+  categoriesFromFamilies,
+  DEFAULT_FILTERS,
+  filterFamilies,
+  storesFromFamilies,
+} from "@/lib/filters";
 import type { SearchResponse } from "@/lib/types";
+import { FilterBar } from "./FilterBar";
+import { NoFilterResults } from "./NoFilterResults";
 import { SearchResults } from "./SearchResults";
+import { SearchSkeleton } from "./SearchSkeleton";
 
 // A real search scrapes 4 stores live and can take 30-40s uncached (Redis
 // caches repeats for 15 min, see services/search.py) - this is not an
@@ -14,6 +23,14 @@ export function SearchBar() {
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+
+  const categories = useMemo(() => (result ? categoriesFromFamilies(result.families) : []), [result]);
+  const stores = useMemo(() => (result ? storesFromFamilies(result.families) : []), [result]);
+  const filteredFamilies = useMemo(
+    () => (result ? filterFamilies(result.families, filters) : []),
+    [result, filters],
+  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -22,6 +39,7 @@ export function SearchBar() {
 
     setStatus("loading");
     setErrorMessage(null);
+    setFilters(DEFAULT_FILTERS);
 
     try {
       const data = await searchProducts(trimmed);
@@ -53,16 +71,37 @@ export function SearchBar() {
       </form>
 
       {status === "loading" && (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Buscando en Amazon, PcComponentes, MediaMarkt y Worten… puede tardar hasta 40 segundos.
-        </p>
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            Buscando en Amazon, PcComponentes, MediaMarkt y Worten… puede tardar hasta 40 segundos.
+          </p>
+          <SearchSkeleton />
+        </div>
       )}
 
       {status === "error" && errorMessage && (
         <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
       )}
 
-      {status === "idle" && result && <SearchResults families={result.families} query={result.query} />}
+      {status === "idle" && result && (
+        <div className="flex flex-col gap-4">
+          {result.families.length > 0 && (
+            <FilterBar
+              filters={filters}
+              onChange={setFilters}
+              categories={categories}
+              stores={stores}
+              visibleCount={filteredFamilies.length}
+              totalCount={result.families.length}
+            />
+          )}
+          {result.families.length > 0 && filteredFamilies.length === 0 ? (
+            <NoFilterResults onChange={setFilters} />
+          ) : (
+            <SearchResults families={filteredFamilies} query={result.query} />
+          )}
+        </div>
+      )}
     </section>
   );
 }

@@ -127,3 +127,85 @@ docker compose up -d
    `Base.metadata.create_all`, no hay Alembic — valorar añadirlo si el schema crece).
 4. Frontend y app deben consumir la misma API; no dupliques lógica de ranking/rebaja en
    el cliente, que se calcule en backend y se sirva ya ordenado.
+
+## 8. Login, favoritos y endurecimiento pre-PMV (sesión 2026-07-15)
+
+**Login/usuarios** (migraciones `0006`/`0007`): enlace mágico por email (sin contraseña).
+`api/auth.py` + `services/auth.py`. Token de un solo uso, caduca en 15 min, y el frontend
+(`/auth/confirm`) exige un clic explícito antes de consumirlo — así un escáner de email que
+pre-visite el link no quema el token del usuario real. Sesión vía cookie `HttpOnly` +
+`SameSite=Lax` guardada en la tabla `sesiones` (no JWT, revocable al instante en logout).
+
+**Favoritos** (`favoritos`, `categorias` — 8 categorías sembradas en la migración, taxonomía
+de palabras clave en `services/categories.py`): un usuario puede favoritar un producto
+concreto o una categoría entera, con `precio_maximo`/`descuento_minimo_percent` opcionales.
+`services/favorite_notifier.py` decide a quién avisar por email en cada bajada de precio —
+independiente del broadcast de Telegram/push que ya existía (umbral fijo 15%), no lo toca.
+
+**IMPORTANTE — Telegram por usuario NO existe todavía.** El bot de Telegram sigue siendo el
+broadcast único original (una sola cuenta/chat). Un Telegram por usuario requiere un webhook
+con URL pública HTTPS real — Telegram no acepta `localhost` ni HTTP, así que esta feature
+está bloqueada hasta que haya despliegue real con dominio.
+
+**Endurecimiento antes del PMV (esta sesión)**:
+- `services/rate_limit.py`: límite en `/api/v1/auth/request-login` (5/email/hora,
+  20/IP/hora vía Redis) — protege la cuenta de Gmail de envíos contra abuso. Detrás del
+  proxy actual todas las peticiones llegan con la misma IP interna, así que el límite por
+  IP hoy es efectivamente un tope global, no por visitante real — revisar si el tráfico
+  crece.
+- Baja de un clic: `GET /api/v1/auth/unsubscribe?token=` (token HMAC firmado con
+  `SECRET_KEY`, sin estado en BD, no caduca). Cada email de aviso de bajada de precio la
+  incluye. **`SECRET_KEY` debe fijarse en `.env` en producción** — si no, cada reinicio
+  invalida todos los enlaces ya enviados (hay un fallback aleatorio por proceso solo para
+  no romper en local).
+- `backend-trendbuy/tests/` (pytest): cubre `matching.py`, `parse_price`/`parse_price_lines`
+  de `scrapers.py`, `categories.py` y los tokens de `auth.py` — son regresiones directas de
+  bugs reales encontrados en pruebas en vivo anteriores (separador de miles, badges de
+  descuento, orden de la regex de tamaño de pantalla, fusión de colores/capacidad). Correr
+  con `pytest` desde `backend-trendbuy/` (instalar `requirements-dev.txt`).
+- `db_backup` en `docker-compose.yml`: `pg_dump` diario a un volumen separado
+  (`trendbuy_backups`), retención 14 días. Es una red de seguridad local (mismo host), no
+  sustituye una copia fuera del servidor para desastre real.
+- `Caddyfile` + `docker-compose.prod.yml` (overlay): HTTPS automático vía Let's Encrypt.
+  Uso: `DOMAIN=tudominio.com docker compose -f docker-compose.yml -f docker-compose.prod.yml
+  up -d --build`. Deja `api`/`db`/`redis`/`frontend` sin puerto publicado — solo Caddy
+  (80/443) queda expuesto. Antes de usarlo, en `.env`: `FRONTEND_URL=https://tudominio.com`,
+  `COOKIE_SECURE=true`, `SECRET_KEY` fijo. **No probado en vivo** (sin dominio real
+  disponible en este entorno) — solo verificado que el merge de compose resuelve bien.
+- Pendiente, no bloqueante: rotar el app password de Gmail y el token de Telegram (se
+  pegaron en texto plano en la conversación en algún momento de la sesión).
+
+## 9. Si hay una sesión de Claude Code en paralelo
+
+Hay (o puede haber) otra sesión trabajando en este mismo repo a la vez. Esta sección existe
+para repartir el trabajo sin pisarse.
+
+**Ahora mismo ocupado por la sesión "principal" (dominio/despliegue) — no tocar en paralelo:**
+- `docker-compose.yml`, `docker-compose.prod.yml`, `Caddyfile`, cualquier `.env*`.
+- `backend-trendbuy/services/auth.py`, `api/auth.py`, `services/favorite_notifier.py`,
+  `services/rate_limit.py` (login/favoritos, recién tocados, todavía sin probar en un
+  dominio real).
+
+**Libre para coger en paralelo sin conflicto, de más a menos autocontenido:**
+1. **App móvil** (`app-trendbuy/`, no existe todavía — ver sección 4). Carpeta nueva,
+   cero solape de archivos con el resto. React Native/Expo recomendado. Debe consumir la
+   misma API REST (`/api/v1/search`, `/api/v1/products/dashboard`, `/api/v1/auth/*`,
+   `/api/v1/favorites`) — no dupliques lógica de ranking/rebaja en el cliente (regla 4).
+2. **Telegram por usuario** — diseño ya descrito en la conversación (webhook +
+   `t.me/tu_bot?start=<código>` para capturar el `chat_id` de cada usuario), pero
+   **bloqueado hasta que exista un dominio HTTPS real** (Telegram no acepta webhooks en
+   `localhost`/HTTP). Si el dominio ya está listo cuando se lea esto, es buen momento para
+   empezarlo — si no, esperar.
+3. **Más tests pytest**: hoy solo hay unitarios puros (`matching.py`, `scrapers.py`,
+   `categories.py`, tokens de `auth.py`). Faltan tests de integración con BD (persistencia,
+   `services/search.py`, `services/persistence.py`) usando `sqlite+aiosqlite` en memoria —
+   sin tocar los archivos que la sesión principal tiene abiertos (arriba).
+4. **Paginación** en `/api/v1/products/dashboard` y `/api/v1/search` (roadmap desde hace
+   tiempo, `api/main.py` — coordinar si la sesión principal también anda por ahí).
+5. **Mejoras visuales pendientes** de una conversación anterior: sparkline de precio en las
+   cards del dashboard (aparte del gráfico al expandir, que ya existe), skeleton loading
+   durante la búsqueda en vez de solo texto. Toca `frontend-trendbuy/src/components/`.
+
+Antes de empezar cualquiera de estos, `git pull`/revisa `git status` primero — si la sesión
+principal ya ha hecho commits, puede que alguno de estos ya esté hecho o haya cambiado de
+alcance.

@@ -119,6 +119,11 @@ class Usuario(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp())
     ultimo_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # One-click unsubscribe (see services/auth.py's HMAC token) flips this to
+    # False - services/favorite_notifier.py checks it before sending any
+    # deal-alert email, independent of the favoritos themselves (a user can
+    # opt out of email entirely without losing their favorites/thresholds).
+    notificaciones_activas: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
     favoritos: Mapped[list["Favorito"]] = relationship(back_populates="usuario", cascade="all, delete-orphan")
 

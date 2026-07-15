@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from models.database import Categoria, Favorito, Producto
+from services.auth import FRONTEND_URL, generate_unsubscribe_token
 from services.categories import match_categories
 from services.email_sender import send_deal_alert_email
 
@@ -47,6 +48,9 @@ async def notify_matching_favorites(
     sent = 0
 
     for favorito in favoritos:
+        if not favorito.usuario.notificaciones_activas:
+            continue
+
         # Same daily-dedup idea as services/search.py's Busqueda: a product
         # tracked every 12h shouldn't email the same user twice for the
         # price staying low the whole day.
@@ -59,9 +63,12 @@ async def notify_matching_favorites(
         if favorito.descuento_minimo_percent is not None and discount_percent < favorito.descuento_minimo_percent:
             continue
 
+        unsubscribe_token = generate_unsubscribe_token(favorito.usuario_id)
+        unsubscribe_url = f"{FRONTEND_URL}/backend/api/v1/auth/unsubscribe?token={unsubscribe_token}"
+
         try:
             ok = await send_deal_alert_email(
-                favorito.usuario.email, producto.nombre, previous_price, current_price, url
+                favorito.usuario.email, producto.nombre, previous_price, current_price, url, unsubscribe_url
             )
         except Exception as exc:
             logger.exception("Favorite alert email failed for favorito_id=%s: %s", favorito.id, exc)

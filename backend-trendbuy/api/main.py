@@ -15,9 +15,16 @@ from api.auth import router as auth_router
 from api.favorites import router as favorites_router
 from models.database import Dispositivo, Producto, get_session, init_db
 from scraper.scrapers import scrape_comparison
+from services.categories import match_categories
 from services.persistence import persist_family
-from services.predictor import analyze_product, classify_best_moment, decimal_to_money
-from services.predictor import load_product_price_history
+from services.predictor import (
+    analyze_product,
+    classify_best_moment,
+    compute_discount_percent,
+    decimal_to_money,
+    load_product_price_history,
+    recent_link_prices,
+)
 from services.search import search_products as run_product_search
 
 
@@ -175,6 +182,14 @@ async def get_products_dashboard(
             None,
         )
 
+        # Same idea as services/search.py::_family_payload's discount_percent -
+        # compares the cheapest link's last two recorded prices, not an estimate.
+        discount_percent = Decimal("0.00")
+        if cheapest_link is not None:
+            recent_prices = await recent_link_prices(session, cheapest_link.id)
+            if len(recent_prices) >= 2:
+                discount_percent = compute_discount_percent(recent_prices[1], recent_prices[0])
+
         dashboard_items.append(
             {
                 "product_id": product.id,
@@ -188,6 +203,8 @@ async def get_products_dashboard(
                 "currency": "EUR",
                 "status": best_moment["status"],
                 "is_historic_low": is_historic_low,
+                "discount_percent": str(discount_percent),
+                "categories": match_categories(product.nombre),
                 "image_url": image_url,
                 "tracked_links": len(product.enlaces),
             }

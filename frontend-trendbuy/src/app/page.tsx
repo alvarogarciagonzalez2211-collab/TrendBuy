@@ -1,6 +1,6 @@
 import { getDashboard } from "@/lib/api";
 import { SearchBar } from "@/components/SearchBar";
-import { DealsGrid } from "@/components/DealsGrid";
+import { FilterableDeals } from "@/components/FilterableDeals";
 import type { DashboardProduct } from "@/lib/types";
 
 // Without this, Next.js prerenders "/" as a static page at `next build` time
@@ -21,20 +21,31 @@ export default async function Home() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-10 px-6 py-12">
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        Compara precios entre tiendas y descubre el mejor momento para comprar.
-      </p>
+      <section className="flex flex-col gap-2">
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl dark:text-zinc-50">
+          Compra en el momento justo
+        </h1>
+        <p className="max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
+          Comparamos precios en Amazon, PcComponentes, MediaMarkt y Worten a la vez y te avisamos cuándo un precio
+          toca su mínimo histórico real, no una estimación.
+        </p>
+      </section>
 
       <SearchBar />
 
       <section className="flex flex-col gap-4">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Mejores ofertas actuales</h2>
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Mejores ofertas actuales</h2>
+          {!dashboardError && products.length > 0 && (
+            <span className="text-xs text-zinc-400 dark:text-zinc-500">{products.length} productos</span>
+          )}
+        </div>
         {dashboardError ? (
           <p className="text-sm text-red-600 dark:text-red-400">
             No se pudo cargar el listado de ofertas. Comprueba que el backend esté disponible.
           </p>
         ) : (
-          <DealsGrid products={products} />
+          <FilterableDeals products={products} />
         )}
       </section>
     </div>

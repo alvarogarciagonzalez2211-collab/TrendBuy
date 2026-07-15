@@ -2,6 +2,7 @@
 
 import type { DashboardProduct } from "@/lib/types";
 import { useProductAnalysis } from "@/lib/useProductAnalysis";
+import { DiscountBadge } from "./DiscountBadge";
 import { FavoriteButton } from "./FavoriteButton";
 import { HistoricLowBadge } from "./HistoricLowBadge";
 import { ProductAnalysisPanel } from "./ProductAnalysisPanel";
@@ -12,7 +13,7 @@ export function DealCard({ product }: { product: DashboardProduct }) {
   const { expanded, status, analysis, toggle } = useProductAnalysis(product.product_id);
 
   return (
-    <article className="relative flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <article className="relative flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900">
       {/* Sibling to the toggle button below, not nested inside it - a
           <button> can't validly contain another <button>. */}
       <div className="absolute right-6 top-6 z-10">
@@ -27,7 +28,10 @@ export function DealCard({ product }: { product: DashboardProduct }) {
 
         <div className="flex items-start justify-between gap-2">
           <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{product.name}</h3>
-          <StatusBadge status={product.status} />
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <StatusBadge status={product.status} />
+            <DiscountBadge percent={product.discount_percent} />
+          </div>
         </div>
 
         {product.cheapest_price && (
@@ -56,7 +60,13 @@ export function DealCard({ product }: { product: DashboardProduct }) {
         </a>
       )}
 
-      {expanded && <ProductAnalysisPanel status={status} analysis={analysis} />}
+      {expanded && (
+        <ProductAnalysisPanel
+          status={status}
+          analysis={analysis}
+          technical={{ productId: product.product_id, ean: product.ean, trackedLinks: product.tracked_links }}
+        />
+      )}
     </article>
   );
 }

@@ -68,6 +68,7 @@ async def send_deal_alert_email(
     old_price: Decimal,
     new_price: Decimal,
     url: str,
+    unsubscribe_url: str,
 ) -> bool:
     subject = f"Bajada de precio: {product_name[:80]}"
     body = (
@@ -76,5 +77,6 @@ async def send_deal_alert_email(
         f"Ahora: {new_price} EUR\n\n"
         f"Ver oferta: {url}\n\n"
         "Recibes esto porque tienes este producto o categoria en tus favoritos de TrendBuy.\n"
+        f"Darse de baja de estos avisos: {unsubscribe_url}\n"
     )
     return await send_email(to_email, subject, body)
