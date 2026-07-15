@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from models.database import AsyncSessionLocal, Busqueda, EnlaceTienda, HistorialPrecio
 from scraper.scrapers import scrape_store_url, serialize_scraped_product
+from services.affiliate import tag_url
 from services.celery_app import celery_app
 from services.favorite_notifier import notify_matching_favorites
 from services.notifier import send_telegram_alert
@@ -71,6 +72,10 @@ async def scrape_all_tracked_prices() -> dict[str, Any]:
 
             if previous_price is not None:
                 discount_percent = calculate_discount_percent(previous_price, current_price)
+                # Tagged once, reused by every alert channel below - see
+                # services/affiliate.py. A no-op passthrough until the real
+                # affiliate program env vars are set.
+                outbound_url = tag_url(enlace.url, enlace.tienda)
 
                 # Independent of the broadcast threshold below: a favorite's
                 # own precio_maximo/descuento_minimo_percent decides whether
@@ -80,7 +85,7 @@ async def scrape_all_tracked_prices() -> dict[str, Any]:
                 favorites_notified = 0
                 if enlace.producto is not None and current_price < previous_price:
                     favorites_notified = await notify_matching_favorites(
-                        session, enlace.producto, previous_price, current_price, enlace.url
+                        session, enlace.producto, previous_price, current_price, outbound_url
                     )
 
                 if discount_percent > ALERT_THRESHOLD_PERCENT:
@@ -88,14 +93,14 @@ async def scrape_all_tracked_prices() -> dict[str, Any]:
                         product_name or "Producto sin nombre",
                         previous_price,
                         current_price,
-                        enlace.url,
+                        outbound_url,
                     )
                     push_sent = await notify_deal_push(
                         session,
                         product_name or "Producto sin nombre",
                         previous_price,
                         current_price,
-                        enlace.url,
+                        outbound_url,
                     )
                     alerts.append(
                         {

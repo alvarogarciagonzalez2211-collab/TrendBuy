@@ -4,13 +4,15 @@ import os
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlsplit
 
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.database import Busqueda, EnlaceTienda, Producto
-from scraper.scrapers import scrape_search_all
+from scraper.scrapers import scrape_search_all, scrape_store_url
+from services.affiliate import tag_url
 from services.categories import match_categories
 from services.favorite_notifier import notify_matching_favorites
 from services.matching import group_by_family
@@ -58,7 +60,7 @@ def _cheapest_update(updates: list[LinkUpdate]) -> LinkUpdate:
 def _store_offers(entries: list[tuple[str, Decimal, str, str | None]]) -> list[dict[str, Any]]:
     return sorted(
         (
-            {"store": store, "price": decimal_to_money(price), "url": url, "image_url": image_url}
+            {"store": store, "price": decimal_to_money(price), "url": tag_url(url, store), "image_url": image_url}
             for store, price, url, image_url in entries
         ),
         key=lambda store: Decimal(store["price"]),
@@ -181,7 +183,11 @@ async def search_products(session: AsyncSession, keyword: str) -> dict[str, Any]
             # triggered from a different place a drop can be discovered.
             if cheapest.previous_price is not None and cheapest.current_price < cheapest.previous_price:
                 await notify_matching_favorites(
-                    session, producto, cheapest.previous_price, cheapest.current_price, cheapest.enlace.url
+                    session,
+                    producto,
+                    cheapest.previous_price,
+                    cheapest.current_price,
+                    tag_url(cheapest.enlace.url, cheapest.enlace.tienda),
                 )
 
             entries = [
@@ -203,3 +209,38 @@ async def search_products(session: AsyncSession, keyword: str) -> dict[str, Any]
         logger.warning("Search cache write failed for keyword=%r: %s", keyword, exc)
 
     return response
+
+
+# Same 4 stores scrape_search_all covers - keeps "which stores are supported"
+# in one place rather than duplicated between the keyword search and this.
+SUPPORTED_STORE_HOST_MARKERS = ("amazon", "pccomponentes", "mediamarkt", "worten")
+
+
+def is_supported_store_url(url: str) -> bool:
+    host = urlsplit(url).netloc.lower()
+    return any(marker in host for marker in SUPPORTED_STORE_HOST_MARKERS)
+
+
+async def track_url(session: AsyncSession, url: str) -> dict[str, Any] | None:
+    # The "paste a URL" quick-add: lets a product be tracked the moment
+    # someone is looking at it, without needing it to already exist via a
+    # keyword search first (see CLAUDE.md section 10, point 2). Reuses the
+    # exact same persistence/family-payload path as a keyword search so
+    # there's no second copy of the ranking/grouping logic to keep in sync.
+    scraped = await scrape_store_url("", url)
+    if scraped.get("price") is None:
+        return None
+
+    producto, updates = await persist_family(session, [scraped], scraped.get("name") or url)
+
+    if not updates:
+        await session.rollback()
+        return None
+
+    await session.commit()
+
+    update = updates[0]
+    discount_percent = compute_discount_percent(update.previous_price, update.current_price)
+    entries = [(update.enlace.tienda or "unknown", update.current_price, update.enlace.url, update.enlace.imagen_url)]
+
+    return await _family_payload(session, producto, entries, discount_percent)

@@ -36,13 +36,29 @@ async function proxy(request: NextRequest, path: string[]): Promise<NextResponse
       headers,
       body: hasBody ? await request.text() : undefined,
       signal: controller.signal,
+      // Google OAuth login (services/google_auth.py) round-trips through
+      // this proxy as a real full-page browser navigation: the backend
+      // 307s straight to accounts.google.com, and that redirect has to
+      // reach the actual browser so *it* navigates there (cookies, 2FA,
+      // saved passwords all need the real browser) - the default "follow"
+      // would instead fetch Google's page server-side and hand back its
+      // HTML as if it were a 200 JSON API response, silently breaking login.
+      redirect: "manual",
     });
 
-    const body = await upstream.text();
+    const isRedirect = upstream.status >= 300 && upstream.status < 400;
+    const body = isRedirect ? null : await upstream.text();
     const response = new NextResponse(body, {
       status: upstream.status,
-      headers: { "Content-Type": upstream.headers.get("Content-Type") ?? "application/json" },
+      headers: isRedirect
+        ? {}
+        : { "Content-Type": upstream.headers.get("Content-Type") ?? "application/json" },
     });
+
+    if (isRedirect) {
+      const location = upstream.headers.get("location");
+      if (location) response.headers.set("location", location);
+    }
 
     // Same idea in reverse: a Set-Cookie from the backend (login, logout)
     // has to be relayed to the browser as if this proxy weren't there.

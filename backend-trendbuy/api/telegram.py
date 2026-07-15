@@ -37,7 +37,7 @@ async def create_telegram_link_code(
 ) -> dict[str, Any]:
     bot_username = await get_bot_username()
     if bot_username is None:
-        raise HTTPException(status_code=503, detail="El bot de Telegram no esta configurado.")
+        raise HTTPException(status_code=503, detail="El bot de Telegram no está configurado.")
 
     code = await generate_telegram_link_code(session, usuario)
     return {"deep_link": f"https://t.me/{bot_username}?start={code}"}
@@ -81,17 +81,17 @@ async def telegram_webhook(
         if not code:
             await _reply(
                 chat_id,
-                "Para vincular tu cuenta, pulsa el boton \"Vincular Telegram\" en trendbuy y abre el enlace que te da.",
+                "Para vincular tu cuenta, pulsa el botón \"Vincular Telegram\" en TrendBuy y abre el enlace que te da.",
             )
             return {"ok": True}
 
         usuario = await consume_telegram_link_code(session, code, chat_id)
         if usuario is None:
-            await _reply(chat_id, "Este enlace de vinculacion no es valido o ha caducado. Pide uno nuevo desde trendbuy.")
+            await _reply(chat_id, "Este enlace de vinculación no es válido o ha caducado. Pide uno nuevo desde TrendBuy.")
         else:
             await _reply(
                 chat_id,
-                f"Listo, {usuario.email} vinculado. A partir de ahora tus avisos de bajada de precio llegaran aqui.",
+                f"Listo, {usuario.email} vinculado. A partir de ahora tus avisos de bajada de precio llegarán aquí.",
             )
         return {"ok": True}
 
@@ -101,7 +101,7 @@ async def telegram_webhook(
         if usuario is not None:
             usuario.notificaciones_activas = False
             await session.commit()
-            await _reply(chat_id, "Notificaciones desactivadas. Puedes reactivarlas desde trendbuy.")
+            await _reply(chat_id, "Notificaciones desactivadas. Puedes reactivarlas desde TrendBuy.")
         return {"ok": True}
 
     return {"ok": True}

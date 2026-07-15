@@ -34,6 +34,19 @@ CATEGORY_KEYWORDS: dict[str, list[str]] = {
         "monitor", "teclado", "raton inalambrico", "impresora", "disco duro",
         "ssd", "tarjeta grafica", "procesador",
     ],
+    "Ropa": [
+        "camiseta", "pantalon", "vaquero", "jean", "sudadera", "chaqueta", "vestido",
+        "falda", "jersey", "abrigo", "camisa", "zapatilla", "calzado", "zapato",
+        "polo", "bermuda", "chandal", "bufanda", "gorro", "bolso",
+    ],
+    "Hogar": [
+        "silla", "sofa", "mesa", "estanteria", "armario", "colchon", "lampara",
+        "mueble", "cortina", "alfombra", "cojin", "espejo", "escritorio", "cama",
+    ],
+    "Belleza": [
+        "crema", "perfume", "maquillaje", "champu", "cosmetica", "serum",
+        "protector solar", "colonia", "mascarilla facial", "labial", "gel de ducha",
+    ],
 }
 
 

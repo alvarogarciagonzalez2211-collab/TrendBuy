@@ -5,6 +5,8 @@ import smtplib
 from decimal import Decimal
 from email.mime.text import MIMEText
 
+from services.notifier import discount_summary, format_price_es
+
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +56,7 @@ async def send_magic_link_email(to_email: str, confirm_url: str) -> bool:
     subject = "Tu enlace de acceso a TrendBuy"
     body = (
         "Hola,\n\n"
-        "Pulsa este enlace para iniciar sesion en TrendBuy (caduca en 15 minutos "
+        "Pulsa este enlace para iniciar sesión en TrendBuy (caduca en 15 minutos "
         "y solo funciona una vez):\n\n"
         f"{confirm_url}\n\n"
         "Si no has pedido este enlace, puedes ignorar este correo con tranquilidad.\n"
@@ -70,13 +72,15 @@ async def send_deal_alert_email(
     url: str,
     unsubscribe_url: str,
 ) -> bool:
-    subject = f"Bajada de precio: {product_name[:80]}"
+    savings, percent = discount_summary(old_price, new_price)
+    subject = f"Baja un {percent}%: {product_name[:80]}"
     body = (
         f"{product_name}\n\n"
-        f"Antes: {old_price} EUR\n"
-        f"Ahora: {new_price} EUR\n\n"
+        f"Antes: {format_price_es(old_price)} €\n"
+        f"Ahora: {format_price_es(new_price)} €\n"
+        f"Ahorras {format_price_es(savings)} € (-{percent}%)\n\n"
         f"Ver oferta: {url}\n\n"
-        "Recibes esto porque tienes este producto o categoria en tus favoritos de TrendBuy.\n"
+        "Recibes esto porque tienes este producto o categoría en tus favoritos de TrendBuy.\n"
         f"Darse de baja de estos avisos: {unsubscribe_url}\n"
     )
     return await send_email(to_email, subject, body)

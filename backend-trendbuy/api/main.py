@@ -18,6 +18,7 @@ from api.favorites import router as favorites_router
 from api.telegram import router as telegram_router
 from models.database import Dispositivo, Producto, get_session, init_db
 from scraper.scrapers import scrape_comparison
+from services.affiliate import tag_url
 from services.categories import match_categories
 from services.notifier import set_telegram_webhook
 from services.persistence import persist_family
@@ -29,7 +30,9 @@ from services.predictor import (
     load_product_price_history,
     recent_link_prices,
 )
+from services.search import is_supported_store_url
 from services.search import search_products as run_product_search
+from services.search import track_url
 
 
 logger = logging.getLogger(__name__)
@@ -60,7 +63,7 @@ def serialize_api_product(product: dict[str, Any]) -> dict[str, Any]:
         "name": name,
         "price": decimal_to_money(price) if price is not None else None,
         "currency": "EUR",
-        "url": product.get("url"),
+        "url": tag_url(product.get("url"), store),
         "error": product.get("error"),
     }
 
@@ -231,7 +234,7 @@ async def get_products_dashboard(
                 "last_store": latest_link.tienda if latest_link else None,
                 "cheapest_price": decimal_to_money(cheapest_link.precio_actual) if cheapest_link else None,
                 "cheapest_store": cheapest_link.tienda if cheapest_link else None,
-                "cheapest_url": cheapest_link.url if cheapest_link else None,
+                "cheapest_url": tag_url(cheapest_link.url, cheapest_link.tienda) if cheapest_link else None,
                 "currency": "EUR",
                 "status": best_moment["status"],
                 "is_historic_low": is_historic_low,
@@ -273,6 +276,33 @@ async def search_endpoint(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     return await run_product_search(session, q)
+
+
+class TrackUrlRequest(BaseModel):
+    url: str
+
+
+@app.post("/api/v1/track")
+async def track_by_url(
+    payload: TrackUrlRequest,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    url = payload.url.strip()
+
+    if not url or not is_supported_store_url(url):
+        raise HTTPException(
+            status_code=400,
+            detail="Ese enlace no es de una tienda soportada (Amazon.es, PcComponentes, MediaMarkt.es o Worten.es).",
+        )
+
+    family = await track_url(session, url)
+    if family is None:
+        raise HTTPException(
+            status_code=422,
+            detail="No se pudo leer el precio de ese enlace. Comprueba que sea la pagina de un producto concreto.",
+        )
+
+    return family
 
 
 class DeviceRegistration(BaseModel):

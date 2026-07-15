@@ -1,4 +1,4 @@
-import type { Category, DashboardResponse, Favorite, ProductAnalysis, SearchResponse, User } from "./types";
+import type { Category, DashboardResponse, Favorite, ProductAnalysis, ProductFamily, SearchResponse, User } from "./types";
 
 // Server-only: Server Components run inside the Next.js server process, which
 // can reach the backend directly (its own env var, never NEXT_PUBLIC_ - see
@@ -32,6 +32,33 @@ export async function searchProducts(query: string): Promise<SearchResponse> {
 
     if (!response.ok) {
       throw new Error(`Search request failed: ${response.status}`);
+    }
+
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// "Paste a URL" quick-add: a single-page scrape, so it's much faster than a
+// full 4-store keyword search but still a live Playwright navigation.
+const TRACK_TIMEOUT_MS = 40_000;
+
+export async function trackByUrl(url: string): Promise<ProductFamily> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TRACK_TIMEOUT_MS);
+
+  try {
+    const response = await fetch("/backend/api/v1/track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new Error(body?.detail ?? `Track request failed: ${response.status}`);
     }
 
     return await response.json();
@@ -101,6 +128,18 @@ export async function getMe(): Promise<User | null> {
   const response = await fetch("/backend/api/v1/auth/me");
   if (response.status === 401) return null;
   if (!response.ok) throw new Error(`Me request failed: ${response.status}`);
+  return response.json();
+}
+
+// "Continuar con Google" is a plain full-page navigation to this URL (see
+// AuthMenu.tsx), never a fetch() - the backend replies with a 307 straight
+// to accounts.google.com, and only a real browser navigation can follow
+// that through Google's login UI, 2FA, etc.
+export const GOOGLE_LOGIN_URL = "/backend/api/v1/auth/google/login";
+
+export async function getAuthConfig(): Promise<{ google_login_enabled: boolean }> {
+  const response = await fetch("/backend/api/v1/auth/config");
+  if (!response.ok) throw new Error(`Auth config request failed: ${response.status}`);
   return response.json();
 }
 

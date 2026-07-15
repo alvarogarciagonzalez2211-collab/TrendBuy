@@ -218,6 +218,9 @@ para repartir el trabajo sin pisarse.
   `services/notifier.py`, `services/favorite_notifier.py`, `services/rate_limit.py`
   (login/favoritos/Telegram-por-usuario, recién tocados — ver sección 8, Telegram-por-usuario
   probado contra el túnel pero pendiente de confirmación del usuario en el navegador real).
+- `backend-trendbuy/services/affiliate.py` (nuevo), `services/search.py`, `api/main.py`,
+  `services/tasks.py`, `frontend-trendbuy/src/lib/api.ts`,
+  `frontend-trendbuy/src/components/SearchBar.tsx` — ver sección 10, puntos 1 y 2.
 - `frontend-trendbuy/src/lib/AppProviders.tsx`, `lib/api.ts`, `lib/types.ts`,
   `components/TelegramLinkPanel.tsx`, `app/favoritos/page.tsx`,
   `app/backend/[...path]/route.ts` (mismo motivo).
@@ -242,3 +245,72 @@ para repartir el trabajo sin pisarse.
 Antes de empezar cualquiera de estos, `git pull`/revisa `git status` primero — si la sesión
 principal ya ha hecho commits, puede que alguno de estos ya esté hecho o haya cambiado de
 alcance.
+
+## 10. Roadmap de producto y monetización (sesión 2026-07-15, tras auditoría comparativa)
+
+Auditoría completa comparando TrendBuy contra Keepa, CamelCamelCamel, Idealo/PriceRunner,
+Honey y PCPartPicker — resultado completo en un artifact de esa conversación (tabla de
+capacidades + tabla de prioridades + tabla de monetización). Resumen ejecutable aquí para
+que sobreviva a la sesión que lo generó:
+
+**Conclusión de la auditoría:** TrendBuy ya está por delante en varias cosas (señal
+"comprar/esperar" vía Prophet — ni Keepa lo tiene, solo heurísticas — y alertas
+multicanal). Los dos gaps reales frente a los competidores que la gente usa a diario:
+cero monetización (todo enlace sale a la tienda sin afiliado) y no se puede "trackear"
+pegando una URL directa (todo pasa primero por búsqueda por palabra clave).
+
+**Secuencia decidida (no en paralelo, en este orden):**
+
+1. ~~Etiquetado de afiliados~~ **Hecho** (esta sesión). `services/affiliate.py::tag_url()`
+   — Amazon Associates (`?tag=`) + deep-link por red de afiliación para PcComponentes/
+   MediaMarkt/Worten. **Verificado por búsqueda web que no todas usan la misma red**
+   (corrección sobre la primera versión de este plan, que asumía Awin para las tres):
+   PcComponentes → Awin (merchant id público `20982` para España, ya puesto por
+   defecto). MediaMarkt.es → **Tradedoubler**, no Awin. Worten.es → sin confirmar a
+   fecha 2026-07-15 (solo se confirmó Worten Portugal en Awin, no España) — el módulo
+   soporta ambas redes para Worten, se activa la que corresponda solo con rellenar su
+   variable. Aplicado en los 4 puntos donde una URL de tienda llega a un humano:
+   `services/search.py::_store_offers` (y su llamada a `notify_matching_favorites`),
+   `api/main.py::get_products_dashboard`/`serialize_api_product`,
+   `services/tasks.py::scrape_all_tracked_prices` (Telegram broadcast + push + favoritos).
+   **No-op mientras las variables de entorno estén vacías** (ver bloque comentado en
+   `.env.example`) — verificado en vivo contra el dashboard real que las URLs no
+   cambian sin credenciales. **Pendiente del usuario, no de código:** darse de alta en
+   Amazon Associates España, en Awin (para PcComponentes, y para Worten si resulta ser
+   esa red) y en Tradedoubler (para MediaMarkt, y para Worten si resulta ser esa red),
+   y rellenar las variables en `.env` — en cuanto estén, empieza a monetizar sin tocar
+   nada más.
+2. ~~"Trackear por URL"~~ **Hecho** (esta sesión). Pegar la URL de un producto de
+   cualquiera de las 4 tiendas directamente en el buscador (`SearchBar.tsx` detecta que
+   empieza por `http(s)://` y llama a `trackByUrl` en vez de `searchProducts`) añade ese
+   producto a seguimiento sin pasar por búsqueda por keyword primero.
+   `POST /api/v1/track` (`api/main.py`) → `services/search.py::track_url()`, que
+   reutiliza `scraper/scrapers.py::scrape_store_url` (ya usado por `services/tasks.py`)
+   y el mismo `persist_family`/`_family_payload` que ya usaba la búsqueda por keyword —
+   la respuesta tiene la forma exacta de una `ProductFamily`, así que el frontend
+   reutiliza `ProductFamilyCard`/`SearchResults` sin componente nuevo. Rechaza con 400
+   URLs de tiendas no soportadas (`services/search.py::is_supported_store_url`) antes
+   de lanzar Playwright, y con 422 si no se pudo leer el precio.
+3. **Plan Pro — solo cuando haya usuarios recurrentes reales**, no antes. Palanca
+   propuesta: refresco más rápido (horario en vez de diario/12h) para productos
+   favoritos + favoritos ilimitados. Reutiliza la infraestructura de Celery ya existente
+   (`services/tasks.py`), no necesita capacidad de scraping nueva — necesitaría Stripe
+   (o similar) + una columna de "plan"/entitlement en `Usuario` + gating en
+   `favorite_notifier.py`/el beat schedule. **No empezar sin que el usuario confirme
+   pasarela de pago.**
+4. **Anuncios — descartado por ahora, no reevaluar hasta ~100x el tráfico actual.**
+   Rompen el posicionamiento "sin ruido" frente a sitios tipo Slickdeals y con el
+   tráfico actual (pruebas vía túnel, sin dominio) no compensan el CPM.
+5. **Extensión de navegador y API pública para desarrolladores — ideas reales, después
+   de 1-3.** La extensión es la palanca de mayor impacto de toda la comparativa (es el
+   producto entero de Keepa y de Honey), pero alto esfuerzo — si se aborda, empezar con
+   un MVP mínimo (badge de estado + enlace de vuelta a TrendBuy), no un overlay completo.
+6. Ideas descartadas conscientemente (no perseguir salvo que cambie el contexto):
+   capa de cupones (cultura de códigos de descuento débil en Amazon.es/PcComponentes/
+   MediaMarkt/Worten frente a EEUU, no justifica el coste de scraping/legal), capa
+   social/votos estilo Slickdeals (necesita efecto de red que TrendBuy no tiene aún).
+
+**Archivos que tocan los puntos 1 y 2** (añadir a la lista de "ocupados" de la sección 9
+si se está trabajando en ello en paralelo): `services/affiliate.py` (nuevo),
+`services/search.py`, `api/main.py`, `frontend-trendbuy/src/lib/api.ts`,
+`frontend-trendbuy/src/components/SearchBar.tsx`.

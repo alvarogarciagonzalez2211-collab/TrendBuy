@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AuthHeader } from "./AuthHeader";
+import { AuthMenu } from "./AuthMenu";
 
 const NAV_LINKS = [
   { href: "/", label: "Inicio" },
@@ -52,10 +52,11 @@ export function HeaderNav() {
   }, [pathname]);
 
   return (
-    <div className="flex items-center gap-2">
-      <NavLinks className="hidden items-center gap-1 sm:flex" />
-      <div className="hidden sm:block">
-        <AuthHeader />
+    <div className="flex items-center gap-3">
+      <div className="hidden items-center gap-1 sm:flex">
+        <NavLinks className="flex items-center gap-1" />
+        <span className="mx-1 h-5 w-px bg-zinc-200 dark:bg-zinc-800" aria-hidden="true" />
+        <AuthMenu />
       </div>
 
       <button
@@ -79,7 +80,7 @@ export function HeaderNav() {
           <div className="flex flex-col gap-4">
             <NavLinks onNavigate={() => setOpen(false)} className="flex flex-col gap-1" />
             <div className="border-t border-zinc-100 pt-4 dark:border-zinc-800">
-              <AuthHeader />
+              <AuthMenu variant="inline" />
             </div>
           </div>
         </div>

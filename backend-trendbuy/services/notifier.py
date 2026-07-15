@@ -1,6 +1,6 @@
 import logging
 import os
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 import httpx
 from dotenv import load_dotenv
@@ -11,14 +11,36 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-def money(value: Decimal) -> str:
-    return f"{value:.2f}"
+def format_price_es(value: Decimal) -> str:
+    # "1234.56" (Python's default Decimal str) reads as wrong/foreign to a
+    # Spanish reader, who expects "." as the thousands separator and "," as
+    # the decimal one ("1.234,56") - every price shown in a message the user
+    # actually reads (Telegram/email/push) should go through this, not the
+    # plain str()/f"{:.2f}" used for machine-readable API payloads.
+    quantized = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    sign = "-" if quantized < 0 else ""
+    integer_part, _, decimal_part = f"{abs(quantized):.2f}".partition(".")
+    grouped = f"{int(integer_part):,}".replace(",", ".")
+    return f"{sign}{grouped},{decimal_part}"
+
+
+def discount_summary(old_price: Decimal, new_price: Decimal) -> tuple[Decimal, Decimal]:
+    # Shared by every "before/after" message below so the \u20ac saved and the %
+    # shown are always derived from the exact same two prices being quoted in
+    # that message - never a percentage computed elsewhere/earlier that could
+    # drift from the specific old/new figures the recipient is reading.
+    savings = old_price - new_price
+    percent = (savings / old_price * 100) if old_price > 0 else Decimal("0")
+    return savings, percent.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
 
 def _deal_alert_message(product_name: str, old_price: Decimal, new_price: Decimal, url: str) -> str:
+    savings, percent = discount_summary(old_price, new_price)
     return (
         f"\U0001f6a8 CHOLLO DETECTADO\n"
-        f"{product_name} ha bajado de {money(old_price)}\u20ac a {money(new_price)}\u20ac.\n"
+        f"{product_name}\n"
+        f"{format_price_es(old_price)} \u20ac \u2192 {format_price_es(new_price)} \u20ac "
+        f"(-{percent}% \u00b7 ahorras {format_price_es(savings)} \u20ac)\n"
         f"{url}"
     )
 

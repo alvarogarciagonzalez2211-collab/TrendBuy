@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { confirmLogin } from "@/lib/api";
@@ -15,6 +16,7 @@ import { useAuth } from "@/lib/AppProviders";
 function ConfirmForm() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
+  const googleError = searchParams.get("google_error");
   const router = useRouter();
   const { refresh } = useAuth();
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
@@ -31,15 +33,32 @@ function ConfirmForm() {
     }
   }
 
+  if (googleError) {
+    return (
+      <>
+        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">No se pudo iniciar sesión</h1>
+        <p className="text-sm text-red-600 dark:text-red-400">
+          El inicio de sesión con Google no se completó. Puedes volver a intentarlo o entrar con tu email.
+        </p>
+        <Link
+          href="/"
+          className="rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+        >
+          Volver al inicio
+        </Link>
+      </>
+    );
+  }
+
   if (!token) {
-    return <p className="text-sm text-red-600 dark:text-red-400">Este enlace no es valido.</p>;
+    return <p className="text-sm text-red-600 dark:text-red-400">Este enlace no es válido.</p>;
   }
 
   return (
     <>
       <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">Confirmar acceso</h1>
       <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        Pulsa el boton para iniciar sesion en TrendBuy.
+        Pulsa el botón para iniciar sesión en TrendBuy.
       </p>
       <button
         type="button"
@@ -50,7 +69,7 @@ function ConfirmForm() {
         {status === "loading" ? "Confirmando..." : "Confirmar acceso"}
       </button>
       {status === "error" && (
-        <p className="text-sm text-red-600 dark:text-red-400">El enlace no es valido o ha caducado.</p>
+        <p className="text-sm text-red-600 dark:text-red-400">El enlace no es válido o ha caducado.</p>
       )}
     </>
   );

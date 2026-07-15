@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.database import Dispositivo
+from services.notifier import discount_summary, format_price_es
 
 
 load_dotenv()
@@ -17,10 +18,6 @@ logger = logging.getLogger(__name__)
 
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 EXPO_BATCH_SIZE = 100
-
-
-def money(value: Decimal) -> str:
-    return f"{value:.2f}"
 
 
 def _chunk(items: list[Any], size: int) -> list[list[Any]]:
@@ -68,8 +65,11 @@ async def notify_deal_push(
     if not devices:
         return False
 
+    _, percent = discount_summary(old_price, new_price)
     title = "Chollo detectado"
-    body = f"{product_name} ha bajado de {money(old_price)}€ a {money(new_price)}€."
+    # Kept short (no €-saved figure, unlike the Telegram/email versions) -
+    # push notification bodies get truncated by the OS after ~2 lines.
+    body = f"{product_name}: {format_price_es(old_price)} € → {format_price_es(new_price)} € (-{percent}%)"
 
     try:
         tickets = await send_expo_push(

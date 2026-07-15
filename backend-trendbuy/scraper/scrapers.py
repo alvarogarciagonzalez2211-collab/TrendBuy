@@ -1,5 +1,6 @@
 import asyncio
 import re
+import unicodedata
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 from urllib.parse import quote, urljoin
@@ -15,6 +16,9 @@ AMAZON_SEARCH_URL = "https://www.amazon.es/s?k={query}"
 PCCOMPONENTES_SEARCH_URL = "https://www.pccomponentes.com/search?query={query}"
 MEDIAMARKT_SEARCH_URL = "https://www.mediamarkt.es/es/search.html?query={query}"
 WORTEN_SEARCH_URL = "https://www.worten.es/search?query={query}"
+IKEA_SEARCH_URL = "https://www.ikea.com/es/es/search/?q={query}"
+VINTED_SEARCH_URL = "https://www.vinted.es/catalog?search_text={query}"
+DRUNI_HOME_URL = "https://www.druni.es/"
 
 SEARCH_RESULT_LIMIT = 20
 
@@ -565,16 +569,334 @@ async def search_worten(browser: Browser, keyword: str) -> list[dict[str, Any]]:
         await context.close()
 
 
+async def search_ikea(browser: Browser, keyword: str) -> list[dict[str, Any]]:
+    context = await new_stealth_context(browser)
+    page = await context.new_page()
+
+    try:
+        url = IKEA_SEARCH_URL.format(query=quote(keyword))
+        await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_MS)
+
+        # Each card carries its own name/price as data attributes too, but those
+        # are meant for IKEA's own JS (unconfirmed decimal-separator convention) -
+        # the rendered price module text goes through the same cheapest_price_in()
+        # parser already trusted (and pytest-covered) for every other store here,
+        # so results stay consistent regardless of how IKEA formats that attribute.
+        cards = page.locator("[data-testid=plp-product-card]")
+        try:
+            await cards.first.wait_for(state="attached", timeout=TIMEOUT_MS)
+        except Exception:
+            return []
+        count = min(await cards.count(), SEARCH_RESULT_LIMIT)
+        items: list[dict[str, Any]] = []
+
+        for index in range(count):
+            card = cards.nth(index)
+
+            try:
+                # The second product image carries a short, clean "<line> <type>,
+                # <color>" alt text (e.g. "ROSENTORP Silla, blanco") - confirmed
+                # live, more reliable than assembling it from separate text nodes.
+                name = await card.locator("img.plp-product__image--alt").first.get_attribute(
+                    "alt", timeout=CARD_TIMEOUT_MS
+                )
+                name = " ".join(name.split()) if name else None
+            except Exception:
+                name = None
+            if not name:
+                continue
+
+            try:
+                price_text = await card.locator(".plp-price-module__price").first.inner_text(
+                    timeout=CARD_TIMEOUT_MS
+                )
+                price = cheapest_price_in(price_text)
+            except Exception:
+                price = None
+
+            try:
+                href = await card.locator("a").first.get_attribute("href", timeout=CARD_TIMEOUT_MS)
+                product_url = urljoin(url, href) if href else None
+            except Exception:
+                product_url = None
+
+            try:
+                image_url = await card.locator("img").first.get_attribute("src", timeout=CARD_TIMEOUT_MS)
+            except Exception:
+                image_url = None
+
+            if not name or price is None or not product_url:
+                continue
+
+            items.append(
+                {
+                    "store": "IKEA",
+                    "name": name,
+                    "price": price,
+                    "url": product_url,
+                    "image_url": image_url,
+                    "error": None,
+                }
+            )
+
+        return items
+    except Exception:
+        return []
+    finally:
+        await context.close()
+
+
+async def search_vinted(browser: Browser, keyword: str) -> list[dict[str, Any]]:
+    context = await new_stealth_context(browser)
+    page = await context.new_page()
+
+    try:
+        url = VINTED_SEARCH_URL.format(query=quote(keyword))
+        await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_MS)
+
+        cards = page.locator("div.new-item-box__container")
+        try:
+            await cards.first.wait_for(state="attached", timeout=TIMEOUT_MS)
+        except Exception:
+            return []
+        count = min(await cards.count(), SEARCH_RESULT_LIMIT)
+        items: list[dict[str, Any]] = []
+
+        for index in range(count):
+            card = cards.nth(index)
+
+            try:
+                # Vinted has no separate title element in the compact grid card -
+                # the full listing title lives in the overlay link's title attr,
+                # bundled with brand/condition/size/price ("Camiseta X, marca: Y,
+                # estado: Z, ... 1,90 e"). Cutting at the first "marca:"/"estado:"
+                # marker isolates just the title, confirmed live against real cards.
+                raw_title = await card.locator("a.new-item-box__overlay--clickable").first.get_attribute(
+                    "title", timeout=CARD_TIMEOUT_MS
+                )
+                href = await card.locator("a.new-item-box__overlay--clickable").first.get_attribute(
+                    "href", timeout=CARD_TIMEOUT_MS
+                )
+            except Exception:
+                continue
+
+            name = None
+            if raw_title:
+                marker = re.search(r",\s*(marca|estado):", raw_title)
+                name = raw_title[: marker.start()] if marker else raw_title
+                name = " ".join(name.split())
+
+            try:
+                # Scoped to the summary block only - the card also shows an
+                # unrelated leading digit (a "liked by N people" style badge)
+                # right before the brand line that would otherwise get parsed
+                # as a bogus price by cheapest_price_in() on the full card text.
+                price_text = await card.locator("div.new-item-box__summary").first.inner_text(
+                    timeout=CARD_TIMEOUT_MS
+                )
+                price = cheapest_price_in(price_text)
+            except Exception:
+                price = None
+
+            try:
+                image_url = await card.locator("img").first.get_attribute("src", timeout=CARD_TIMEOUT_MS)
+            except Exception:
+                image_url = None
+
+            product_url = urljoin(url, href) if href else None
+
+            if not name or price is None or not product_url:
+                continue
+
+            items.append(
+                {
+                    "store": "Vinted",
+                    "name": name,
+                    "price": price,
+                    "url": product_url,
+                    "image_url": image_url,
+                    "error": None,
+                }
+            )
+
+        return items
+    except Exception:
+        return []
+    finally:
+        await context.close()
+
+
+async def search_druni(browser: Browser, keyword: str) -> list[dict[str, Any]]:
+    context = await new_stealth_context(browser)
+    page = await context.new_page()
+
+    try:
+        # Druni has no working direct search URL (both a Magento-style
+        # /catalogsearch/result/ and a plain /buscar path were tried live and
+        # returned 406/404) - only driving its own search box like a real user
+        # reaches real results, which then render as a client-side overlay
+        # instead of navigating to a new URL.
+        await page.goto(DRUNI_HOME_URL, wait_until="domcontentloaded", timeout=TIMEOUT_MS)
+        await page.wait_for_timeout(1000)
+
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+
+        search_input = page.locator("input[type=search]").first
+        try:
+            await search_input.wait_for(state="visible", timeout=TIMEOUT_MS)
+            await search_input.click(timeout=CARD_TIMEOUT_MS)
+            await search_input.fill(keyword, timeout=CARD_TIMEOUT_MS)
+            await search_input.press("Enter")
+        except Exception:
+            return []
+
+        cards = page.locator("form.product-item")
+        try:
+            await cards.first.wait_for(state="attached", timeout=TIMEOUT_MS)
+        except Exception:
+            return []
+        count = min(await cards.count(), SEARCH_RESULT_LIMIT)
+        items: list[dict[str, Any]] = []
+        current_url = page.url
+
+        for index in range(count):
+            card = cards.nth(index)
+
+            try:
+                brand = await card.locator("p.product-brand").first.inner_text(timeout=CARD_TIMEOUT_MS)
+            except Exception:
+                brand = ""
+
+            try:
+                title = await card.locator("span.product-card-title").first.inner_text(timeout=CARD_TIMEOUT_MS)
+            except Exception:
+                title = None
+
+            name = " ".join(f"{brand} {title}".split()) if title else None
+            if not name:
+                continue
+
+            try:
+                price_text = await card.locator("div.price-box.price-final_price").first.inner_text(
+                    timeout=CARD_TIMEOUT_MS
+                )
+                price = cheapest_price_in(price_text)
+            except Exception:
+                price = None
+
+            try:
+                href = await card.locator("a.product-item-link").first.get_attribute(
+                    "href", timeout=CARD_TIMEOUT_MS
+                )
+                product_url = urljoin(current_url, href) if href else None
+            except Exception:
+                product_url = None
+
+            try:
+                image_url = await card.locator("img").first.get_attribute("src", timeout=CARD_TIMEOUT_MS)
+            except Exception:
+                image_url = None
+
+            if not name or price is None or not product_url:
+                continue
+
+            items.append(
+                {
+                    "store": "Druni",
+                    "name": name,
+                    "price": price,
+                    "url": product_url,
+                    "image_url": image_url,
+                    "error": None,
+                }
+            )
+
+        return items
+    except Exception:
+        return []
+    finally:
+        await context.close()
+
+
+# Coarse routing taxonomy, deliberately separate from services.categories'
+# CATEGORY_KEYWORDS: that one is fine-grained (8 categories) for tagging
+# already-found products for favorites; this one only has to decide, before
+# any scraping happens, which store set a raw query keyword belongs to - a
+# handful of broad sections is enough and keeps scraper/ free of a dependency
+# on services/ (services/search.py already depends on scraper/, not the other
+# way round).
+STORE_SECTION_KEYWORDS: dict[str, list[str]] = {
+    "ropa": [
+        "camiseta", "pantalon", "vaquero", "jean", "sudadera", "chaqueta", "vestido",
+        "falda", "jersey", "abrigo", "camisa", "zapatilla", "calzado", "zapato",
+        "ropa", "moda", "polo", "bermuda", "chandal", "bufanda", "gorro", "bolso",
+    ],
+    "hogar": [
+        "silla", "sofa", "mesa", "estanteria", "armario", "colchon", "lampara",
+        "mueble", "cortina", "alfombra", "cojin", "espejo", "escritorio", "cama",
+        "decoracion",
+    ],
+    "belleza": [
+        "crema", "perfume", "maquillaje", "champu", "cosmetica", "serum",
+        "protector solar", "colonia", "mascarilla facial", "labial", "gel de ducha",
+        "belleza",
+    ],
+}
+
+# Amazon is a broad marketplace relevant to every section, so it always runs.
+# PcComponentes/MediaMarkt/Worten are tech-focused - they only make sense for a
+# recognized tech query or, to preserve the original behavior for anything this
+# taxonomy doesn't recognize, as the default when no section matches at all.
+ALWAYS_SCRAPERS = [search_amazon]
+TECH_ONLY_SCRAPERS = [search_pccomponentes, search_mediamarkt, search_worten]
+SECTION_SCRAPERS = {
+    "ropa": [search_vinted],
+    # MediaMarkt/Worten already sell home appliances, on top of IKEA for furniture.
+    "hogar": [search_ikea, search_mediamarkt, search_worten],
+    "belleza": [search_druni],
+}
+
+
+def _strip_accents(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(char for char in decomposed if not unicodedata.combining(char))
+
+
+def detect_store_sections(keyword: str) -> list[str]:
+    normalized = _strip_accents(keyword.lower())
+    return [section for section, kws in STORE_SECTION_KEYWORDS.items() if any(kw in normalized for kw in kws)]
+
+
+def resolve_search_scrapers(keyword: str) -> list[Any]:
+    sections = detect_store_sections(keyword)
+    scrapers = list(ALWAYS_SCRAPERS)
+    if not sections:
+        scrapers.extend(TECH_ONLY_SCRAPERS)
+    else:
+        for section in sections:
+            scrapers.extend(SECTION_SCRAPERS[section])
+
+    seen: set[int] = set()
+    unique_scrapers = []
+    for fn in scrapers:
+        if id(fn) not in seen:
+            seen.add(id(fn))
+            unique_scrapers.append(fn)
+    return unique_scrapers
+
+
 async def scrape_search_all(keyword: str) -> list[dict[str, Any]]:
+    scrapers = resolve_search_scrapers(keyword)
+
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
 
         try:
             store_results = await asyncio.gather(
-                search_amazon(browser, keyword),
-                search_pccomponentes(browser, keyword),
-                search_mediamarkt(browser, keyword),
-                search_worten(browser, keyword),
+                *(fn(browser, keyword) for fn in scrapers),
                 return_exceptions=True,
             )
         finally:
