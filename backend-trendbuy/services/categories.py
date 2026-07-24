@@ -47,6 +47,19 @@ CATEGORY_KEYWORDS: dict[str, list[str]] = {
         "crema", "perfume", "maquillaje", "champu", "cosmetica", "serum",
         "protector solar", "colonia", "mascarilla facial", "labial", "gel de ducha",
     ],
+    "Deportes": [
+        "bicicleta", "mancuerna", "cinta de correr", "raqueta", "balon", "futbol",
+        "padel", "esqui", "patinete", "fitness", "yoga", "running", "senderismo",
+        "camiseta tecnica", "esterilla", "surf", "natacion", "gimnasio",
+    ],
+    "Libros": [
+        "libro", "novela", "comic", "manga", "cuento", "trilogia", "tapa blanda",
+        "tapa dura", "edicion de bolsillo",
+    ],
+    "Juguetes": [
+        "juguete", "lego", "playmobil", "muneca", "peluche", "puzzle",
+        "juego de mesa", "funko",
+    ],
 }
 
 

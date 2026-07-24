@@ -1,12 +1,13 @@
 import hashlib
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -20,6 +21,7 @@ from models.database import Dispositivo, Producto, get_session, init_db
 from scraper.scrapers import scrape_comparison
 from services.affiliate import tag_url
 from services.categories import match_categories
+from services.metrics import get_click_stats, record_click
 from services.notifier import set_telegram_webhook
 from services.persistence import persist_family
 from services.predictor import (
@@ -27,6 +29,7 @@ from services.predictor import (
     classify_best_moment,
     compute_discount_percent,
     decimal_to_money,
+    history_sparkline,
     load_product_price_history,
     recent_link_prices,
 )
@@ -206,11 +209,14 @@ async def get_products_dashboard(
 
         # Same zero-tolerance comparison as services/search.py::search_products -
         # deliberately stricter than the 5% band "Óptimo" uses internally.
+        # has_price_history (>= 2 distinct tracked days) keeps a just-added
+        # product from trivially claiming its only price as a historic low.
         historic_min = best_moment.get("historic_min")
         is_historic_low = (
             cheapest_link is not None
             and historic_min is not None
             and cheapest_link.precio_actual <= Decimal(historic_min)
+            and bool(best_moment.get("has_price_history"))
         )
         image_url = next(
             (link.imagen_url for link in (cheapest_link, latest_link) if link and link.imagen_url),
@@ -241,6 +247,8 @@ async def get_products_dashboard(
                 "discount_percent": str(discount_percent),
                 "categories": match_categories(product.nombre),
                 "image_url": image_url,
+                "days_tracked": best_moment.get("days_tracked", 0),
+                "history_spark": history_sparkline(history),
                 "tracked_links": len(product.enlaces),
             }
         )
@@ -292,7 +300,11 @@ async def track_by_url(
     if not url or not is_supported_store_url(url):
         raise HTTPException(
             status_code=400,
-            detail="Ese enlace no es de una tienda soportada (Amazon.es, PcComponentes, MediaMarkt.es o Worten.es).",
+            detail=(
+                "Ese enlace no es de una tienda soportada. Tiendas disponibles: "
+                "Amazon.es, PcComponentes, MediaMarkt, Worten, IKEA, Vinted, Druni, "
+                "Decathlon, Sprinter, Primor y Casa del Libro."
+            ),
         )
 
     family = await track_url(session, url)
@@ -303,6 +315,36 @@ async def track_by_url(
         )
 
     return family
+
+
+class ClickEvent(BaseModel):
+    store: str
+    source: Literal["dashboard", "search", "alert", "web"] = "web"
+
+
+@app.post("/api/v1/metrics/click", status_code=204)
+async def record_outbound_click(payload: ClickEvent) -> None:
+    # Beacon fired by the frontend right as a user clicks out to a store -
+    # backs monetization decisions (see services/metrics.py). Always 204:
+    # a metrics hiccup must never surface to the user mid-purchase.
+    store = payload.store.strip()
+    if store:
+        await record_click(store, payload.source)
+
+
+@app.get("/api/v1/metrics/clicks")
+async def get_outbound_click_stats(
+    days: int = Query(30, ge=1, le=90),
+    x_admin_key: str = Header(""),
+) -> dict[str, Any]:
+    # Same SECRET_KEY that already signs unsubscribe links - it's the one
+    # secret guaranteed to be set in any real deployment, and this endpoint
+    # is for the operator, not end users.
+    secret = os.getenv("SECRET_KEY", "")
+    if not secret or not secrets.compare_digest(x_admin_key, secret):
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+    return await get_click_stats(days)
 
 
 class DeviceRegistration(BaseModel):

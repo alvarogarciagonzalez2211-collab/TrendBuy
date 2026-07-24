@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.database import Busqueda, EnlaceTienda, Producto
-from scraper.scrapers import scrape_search_all, scrape_store_url
+from scraper.scrapers import KNOWN_STORES, scrape_search_all, scrape_store_url
 from services.affiliate import tag_url
 from services.categories import match_categories
 from services.favorite_notifier import notify_matching_favorites
@@ -21,6 +21,7 @@ from services.predictor import (
     classify_best_moment,
     compute_discount_percent,
     decimal_to_money,
+    history_sparkline,
     load_product_price_history,
     recent_link_prices,
 )
@@ -80,9 +81,14 @@ async def _family_payload(
     stores = _store_offers(entries)
     cheapest_price = min(price for _, price, _, _ in entries)
     # A product seen for the first time has a single price point, so its
-    # historic_min equals its current price and this reads as historic-low
-    # trivially - same behavior classify_best_moment already has today.
-    is_historic_low = historic_min is not None and cheapest_price <= Decimal(historic_min)
+    # historic_min trivially equals its current price - has_price_history
+    # (>= 2 distinct tracked days, see predictor.MIN_HISTORY_DAYS_FOR_LOW)
+    # keeps every result of a fresh search from claiming "mínimo histórico".
+    is_historic_low = (
+        historic_min is not None
+        and cheapest_price <= Decimal(historic_min)
+        and bool(best_moment.get("has_price_history"))
+    )
     image_url = next((store["image_url"] for store in stores if store["image_url"]), None)
 
     return {
@@ -93,6 +99,8 @@ async def _family_payload(
         "discount_percent": str(discount_percent),
         "categories": match_categories(producto.nombre),
         "image_url": image_url,
+        "days_tracked": best_moment.get("days_tracked", 0),
+        "history_spark": history_sparkline(history),
         "stores": stores,
     }
 
@@ -211,9 +219,11 @@ async def search_products(session: AsyncSession, keyword: str) -> dict[str, Any]
     return response
 
 
-# Same 4 stores scrape_search_all covers - keeps "which stores are supported"
-# in one place rather than duplicated between the keyword search and this.
-SUPPORTED_STORE_HOST_MARKERS = ("amazon", "pccomponentes", "mediamarkt", "worten")
+# Derived from the scraper layer's single store registry - adding a store to
+# KNOWN_STORES automatically makes its URLs trackable here (detail scraping
+# falls back to the generic JSON-LD extractor for stores without a hand-tuned
+# scraper).
+SUPPORTED_STORE_HOST_MARKERS = tuple(KNOWN_STORES)
 
 
 def is_supported_store_url(url: str) -> bool:

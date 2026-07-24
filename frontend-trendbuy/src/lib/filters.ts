@@ -6,6 +6,7 @@ import type { DashboardProduct, ProductFamily } from "./types";
 export type Filters = {
   maxPrice: string;
   minDiscount: number;
+  interest: string;
   category: string;
   store: string;
   onlyHistoricLow: boolean;
@@ -14,10 +15,36 @@ export type Filters = {
 export const DEFAULT_FILTERS: Filters = {
   maxPrice: "",
   minDiscount: 0,
+  interest: "all",
   category: "all",
   store: "all",
   onlyHistoricLow: false,
 };
+
+// One tap = one shopping intent. Each interest is a coarse bundle of the
+// backend's fine-grained categories (services/categories.py) - the mapping
+// lives client-side only because it's pure presentation grouping: nothing is
+// recomputed, it just decides which already-tagged items to show (rule 4).
+export type Interest = {
+  id: string;
+  label: string;
+  icon: string;
+  categories: string[];
+};
+
+export const INTERESTS: Interest[] = [
+  {
+    id: "tecnologia",
+    label: "Tecnología",
+    icon: "💻",
+    categories: ["Moviles", "Televisores", "Portatiles", "Tablets", "Auriculares", "Informatica", "Videojuegos"],
+  },
+  { id: "ropa", label: "Ropa y moda", icon: "👕", categories: ["Ropa"] },
+  { id: "hogar", label: "Hogar", icon: "🛋️", categories: ["Hogar", "Electrodomesticos"] },
+  { id: "belleza", label: "Belleza", icon: "✨", categories: ["Belleza"] },
+  { id: "deportes", label: "Deportes", icon: "🏃", categories: ["Deportes"] },
+  { id: "cultura", label: "Libros y ocio", icon: "📚", categories: ["Libros", "Juguetes", "Videojuegos"] },
+];
 
 export const DISCOUNT_STEPS = [0, 10, 20, 30, 50] as const;
 
@@ -25,6 +52,7 @@ export function hasActiveFilters(filters: Filters): boolean {
   return (
     filters.maxPrice.trim() !== "" ||
     filters.minDiscount > 0 ||
+    filters.interest !== "all" ||
     filters.category !== "all" ||
     filters.store !== "all" ||
     filters.onlyHistoricLow
@@ -45,6 +73,10 @@ function matches(item: FilterableItem, filters: Filters): boolean {
     if (!Number.isNaN(max) && (item.price === null || item.price > max)) return false;
   }
   if (item.discountPercent < filters.minDiscount) return false;
+  if (filters.interest !== "all") {
+    const interest = INTERESTS.find((entry) => entry.id === filters.interest);
+    if (interest && !item.categories.some((category) => interest.categories.includes(category))) return false;
+  }
   if (filters.category !== "all" && !item.categories.includes(filters.category)) return false;
   if (filters.store !== "all" && !item.stores.includes(filters.store)) return false;
   if (filters.onlyHistoricLow && !item.isHistoricLow) return false;

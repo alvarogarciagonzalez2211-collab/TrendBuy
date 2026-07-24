@@ -5,6 +5,7 @@ import { categoriesFromDashboard, DEFAULT_FILTERS, filterDashboardProducts, stor
 import type { DashboardProduct } from "@/lib/types";
 import { DealsGrid } from "./DealsGrid";
 import { FilterBar } from "./FilterBar";
+import { InterestChips } from "./InterestChips";
 import { NoFilterResults } from "./NoFilterResults";
 
 export function FilterableDeals({ products }: { products: DashboardProduct[] }) {
@@ -19,6 +20,7 @@ export function FilterableDeals({ products }: { products: DashboardProduct[] }) 
 
   return (
     <div className="flex flex-col gap-4">
+      <InterestChips filters={filters} onChange={setFilters} />
       <FilterBar
         filters={filters}
         onChange={setFilters}
